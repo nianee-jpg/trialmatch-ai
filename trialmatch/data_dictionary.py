@@ -165,3 +165,85 @@ ULN_PARAMETER_RULES: List[Tuple[Pattern[str], str]] = [
     (re.compile(r"alanine aminotransferase|\bALT\b"), "labs.alt"),
     (re.compile(r"alkaline phosphatase", _I), "labs.alkaline_phosphatase"),
 ]
+
+
+# --------------------------------------------------------------------------- #
+# Plain-language names for the dashboard
+# --------------------------------------------------------------------------- #
+
+FIELD_LABELS: Dict[str, str] = {
+    "demographics.age": "Age",
+    "demographics.sex": "Sex",
+    "diagnosis.sle_acr_criteria": "Lupus (SLE) diagnosis meets ACR criteria",
+    "labs.ana": "ANA (antinuclear antibody) test",
+    "labs.anti_dsdna": "Anti-dsDNA antibody test",
+    "visits.visit_minus_1_date": "Date of study visit -1",
+    "visits.screening_date": "Screening date",
+    "visits.enrollment_date": "Planned enrollment date",
+    "renal.biopsy_class": "Kidney biopsy result (ISN/RPS class)",
+    "renal.biopsy_date": "Kidney biopsy date",
+    "urinalysis.rbc_per_hpf": "Red blood cells in urine",
+    "urinalysis.wbc_per_hpf": "White blood cells in urine",
+    "urinalysis.cellular_casts": "Cell casts in urine",
+    "reproductive.menses_at_collection": "Menstruating when urine was collected",
+    "labs.upcr": "Urine protein-to-creatinine ratio (UPCR)",
+    "labs.upcr_collection_method": "How the UPCR urine was collected",
+    "consent.able_to_consent": "Able to give informed consent",
+    "medications.history": "Medication history",
+    "labs.anc": "Absolute neutrophil count (ANC)",
+    "labs.platelets": "Platelet count",
+    "labs.hemoglobin": "Hemoglobin",
+    "labs.igg": "IgG (immunoglobulin G)",
+    "labs.iga": "IgA (immunoglobulin A)",
+    "labs.ast": "AST (liver enzyme)",
+    "labs.alt": "ALT (liver enzyme)",
+    "labs.alkaline_phosphatase": "Alkaline phosphatase (liver enzyme)",
+    "labs.egfr": "eGFR (kidney function)",
+    "infections.quantiferon_tb": "QuantiFERON tuberculosis test",
+    "imaging.chest_radiograph": "Chest X-ray",
+    "infections.current": "Current infections",
+    "infections.hiv": "HIV test",
+    "infections.hepatitis_b": "Hepatitis B tests",
+    "infections.hepatitis_c": "Hepatitis C test",
+    "infections.hospitalizations": "Hospital stays for infection",
+    "infections.parenteral_antimicrobials": "IV or injected antibiotics/antivirals",
+    "infections.chronic_suppressive_therapy": "Long-term treatment for a chronic infection",
+    "infections.history": "Past serious or repeated infections",
+    "vaccinations.live_attenuated": "Live vaccines",
+    "history.malignancy": "Cancer history",
+    "history.transplantation": "Transplant history",
+    "history.primary_immunodeficiency": "Primary immunodeficiency",
+    "history.comorbidities": "Other serious medical conditions",
+    "reproductive.pregnancy_status": "Pregnancy test / status",
+    "reproductive.breastfeeding": "Breastfeeding",
+    "reproductive.contraception_willingness": "Willing to use birth control",
+    "medications.corticosteroid_courses": "Steroid courses in the past year",
+    "social.substance_abuse": "Substance misuse",
+    "allergies.monoclonal_antibodies": "Severe allergy to antibody medicines",
+    "allergies.contrast_agents": "Severe allergy to contrast dye",
+    "procedures.ivig_plasmapheresis_leukopheresis": "IVIG, plasmapheresis or leukopheresis",
+    "access.peripheral_venous": "Suitable veins for IV access",
+    "psychiatric.history": "Severe depression or psychiatric illness",
+    "psychiatric.suicidality": "Suicidal thoughts or behaviour",
+    "compliance.able_to_comply": "Able to follow the study schedule",
+    "assessment.investigator_judgement": "Investigator's clinical judgement",
+}
+
+FIELD_GROUPS: Dict[str, str] = {
+    "demographics": "About the patient", "visits": "Study dates", "diagnosis": "Diagnosis",
+    "labs": "Lab results", "renal": "Kidney biopsy", "urinalysis": "Urine tests",
+    "medications": "Medicines", "procedures": "Medicines", "infections": "Infections",
+    "imaging": "Imaging", "vaccinations": "Vaccines", "history": "Medical history",
+    "allergies": "Allergies", "psychiatric": "Mental health", "social": "Lifestyle",
+    "reproductive": "Pregnancy and contraception", "consent": "Practical", "access": "Practical",
+    "compliance": "Practical", "assessment": "Investigator assessment",
+}
+
+
+def field_label(field: str) -> str:
+    """'labs.anc' -> 'Absolute neutrophil count (ANC)'. Falls back to the raw name."""
+    return FIELD_LABELS.get(field, field)
+
+
+def field_group(field: str) -> str:
+    return FIELD_GROUPS.get(field.split(".", 1)[0], "Other")

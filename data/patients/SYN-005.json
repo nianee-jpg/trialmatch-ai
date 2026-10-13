@@ -3,7 +3,7 @@
   "synthetic": true,
   "patient_id": "SYN-005",
   "display_name": "Synthetic Patient E",
-  "scenario": "Contradictory evidence: two same-day ANC results on either side of 1500, a negative urine hCG alongside a patient-reported positive home pregnancy test, and a patient statement of no prior biologics contradicted by a pharmacy record of belimumab infusions.",
+  "scenario": "Some sources disagree: two neutrophil results on the same day, a negative pregnancy test next to a reported positive home test, and 'no prior biologics' next to a pharmacy record of belimumab. This checks that conflicts are flagged, not quietly resolved.",
   "observations": {
     "access.peripheral_venous": [
       {

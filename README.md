@@ -142,7 +142,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `81 passed`.
+**4. Run the tests.** You should see `82 passed`.
 
 ```bash
 python -m pytest
@@ -168,8 +168,8 @@ Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `str
 - **Arms & outcomes** tab: arms, interventions, primary and secondary outcomes.
 - **Extracted criteria** tab: click **Run Protocol Agent** to see every criterion, its thresholds,
   windows, required data and review flags, with a JSON download.
-- **Synthetic patients** tab: choose a patient, see which fields the protocol needs that are missing
-  or conflicting, and ask the Patient Agent questions.
+- **Practice patients** tab, in four steps: choose a patient, check whether the record has
+  everything the criteria ask about, look up any value (with its source), and view the full record.
 - **Agent activity** tab: every tool call the agent made, and the verification result.
 - **Raw API response** tab: the full JSON plus a download of the exact saved bytes.
 - Sidebar: **Fetch latest from ClinicalTrials.gov** and traceability details (URL, UTC timestamp,

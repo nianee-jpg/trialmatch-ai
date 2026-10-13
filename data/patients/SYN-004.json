@@ -3,7 +3,7 @@
   "synthetic": true,
   "patient_id": "SYN-004",
   "display_name": "Synthetic Patient D",
-  "scenario": "Prior-treatment rules and date windows: rituximab in 2012 (any prior B-cell therapy), last cyclophosphamide dose about 4.7 months before screening (inside 6 months), IVIG 77 days before screening (inside 90 days), yellow fever vaccine 116 days before enrollment (outside 3 months), and three steroid courses given for lupus itself rather than a comorbidity.",
+  "scenario": "Has had treatments the study rules out (rituximab, recent cyclophosphamide, IVIG) and a live vaccine just outside the 3-month limit. This checks the treatment-history and date rules.",
   "observations": {
     "access.peripheral_venous": [
       {

@@ -13,6 +13,7 @@ and never a final clinical eligibility determination.
 
 from __future__ import annotations
 
+import datetime as dt
 from typing import Optional
 
 import pandas as pd
@@ -28,7 +29,7 @@ from trialmatch.clinicaltrials_client import (
 from trialmatch.activity_log import ActivityLog
 from trialmatch.agents.patient_agent import PatientAgent, PatientDataError, load_patients
 from trialmatch.agents.protocol_agent import ProtocolAgent, make_claude_client
-from trialmatch.data_dictionary import DATA_FIELDS
+from trialmatch.data_dictionary import DATA_FIELDS, field_group, field_label
 from trialmatch.protocol_models import Criterion, ProtocolExtraction
 from trialmatch.study_parser import StudyMetadata, parse_study
 
@@ -401,114 +402,214 @@ def render_extracted_criteria(retrieval: StudyRetrieval, study: StudyMetadata) -
     )
 
 
+STATUS_TEXT = {
+    "FOUND": "✅ In the record",
+    "NOT_RECORDED": "⚠️ Missing",
+    "CONFLICTING": "❗ Sources disagree",
+}
+
+
 def _fmt_value(value: object) -> str:
     if isinstance(value, bool):
-        return "yes" if value else "no"
+        return "Yes" if value else "No"
     if isinstance(value, dict):
-        return "; ".join(f"{k}: {v}" for k, v in value.items())
+        return ", ".join(f"{k.replace('_', '-')} {v}" for k, v in value.items())
     return str(value)
 
 
-def render_patients() -> None:
+def _fmt_date(value: object) -> str:
+    """'2015-03-02' -> '2 Mar 2015'."""
+    try:
+        d = value if isinstance(value, dt.date) else dt.date.fromisoformat(str(value))
+        return f"{d.day} {d:%b %Y}"
+    except ValueError:
+        return str(value)
+
+
+def _observations_table(observations: list) -> pd.DataFrame:
+    """Turn Patient Agent evidence into a readable table."""
+    rows = []
+    for o in observations:
+        attrs = o.get("attributes") or {}
+        row = {
+            "Result": _fmt_value(o["value"]),
+            "Unit": o.get("unit") or "",
+            "Date": _fmt_date(o["date"]) if o.get("date") else "",
+            "Until": _fmt_date(o["end_date"]) if o.get("end_date") else "",
+            "Source": o.get("source", ""),
+            "Note": o.get("note") or "",
+        }
+        if "uln" in attrs:
+            row["Upper limit of normal"] = attrs["uln"]
+        if "route" in attrs:
+            row["Route"] = attrs["route"]
+        row["Reference"] = o["evidence_id"]
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
+def render_lookup_result(result: dict, label: str) -> None:
+    status = result.get("status")
+    count = len(result.get("observations", []))
+    if result.get("consistency") == "CONFLICTING":
+        st.warning(
+            f"**{label}: sources disagree.** The entries below do not match. The app will not "
+            "choose between them; a person needs to check the original documents."
+        )
+    elif status == "FOUND":
+        st.success(f"**{label}: found {count} {'entry' if count == 1 else 'entries'}** in the record.")
+    elif status == "NOT_RECORDED" and result.get("drug_query"):
+        st.warning(
+            f"**No record of {result['drug_query']}.** That does not prove it was never given; "
+            "it just is not in this record."
+        )
+    elif status == "NOT_RECORDED":
+        st.warning(
+            f"**{label}: not in this record.** The app will not guess or fill in a value. "
+            "In a real screening, the coordinator would request it."
+        )
+    else:
+        st.error(result.get("message", "The lookup could not be completed."))
+
+    if count:
+        st.dataframe(_observations_table(result["observations"]), hide_index=True, width="stretch")
+    if result.get("negative_statements"):
+        st.info("The record also contains this statement, which contradicts the entry above:")
+        st.dataframe(_observations_table(result["negative_statements"]), hide_index=True, width="stretch")
+    with st.expander("Technical details (exactly what the Patient Agent returned)"):
+        st.json(result, expanded=True)
+
+
+def ensure_extraction(retrieval: StudyRetrieval, study: StudyMetadata) -> Optional[ProtocolExtraction]:
+    """The completeness check needs the criteria. In offline mode they take under a second, so run them."""
+    if st.session_state.get("extraction") is None and not config.ANTHROPIC_API_KEY:
+        run_protocol_agent(retrieval, study)
+    return st.session_state.get("extraction")
+
+
+def render_patients(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
     try:
         patients = load_patients()
     except PatientDataError as exc:
-        st.error(f"A patient file was rejected: {exc}")
+        st.error(f"A patient file was rejected and not loaded: {exc}")
         return
     if not patients:
-        st.info("No synthetic patient files found in `data/patients/`.")
+        st.info("No practice patients found in the `data/patients/` folder.")
         return
 
-    st.error(
-        "**SYNTHETIC RECORDS ONLY.** Every patient below is fictional and was written to exercise specific "
-        "protocol rules. No real patient information is used or transmitted.",
+    st.warning(
+        "**Practice patients only.** These five patients are made up (SYNTHETIC). Each was written to test "
+        "specific study rules. No real patient information is used.",
         icon="🧪",
     )
     agent = PatientAgent(get_log(), patients)
+
+    # 1. Choose a patient -----------------------------------------------------
+    st.markdown("### 1. Choose a patient")
     pid = st.selectbox(
-        "Synthetic patient",
+        "Patient",
         list(patients),
-        format_func=lambda i: f"{i} · {patients[i].display_name} (SYNTHETIC)",
+        format_func=lambda i: f"{patients[i].display_name.replace('Synthetic ', '')} · {i}",
+        label_visibility="collapsed",
     )
     record = patients[pid]
-    st.info(f"**Designed to test:** {record.scenario}")
+    st.markdown(f"**What this case tests:** {record.scenario}")
 
-    overview = agent.get_patient_overview(pid)["key_facts"]
+    facts = agent.get_patient_overview(pid)["key_facts"]
 
-    def first(field: str) -> str:
-        res = overview[field]
-        return _fmt_value(res["observations"][0]["value"]) if res["status"] == "FOUND" else "NOT RECORDED"
+    def fact(field: str, as_date: bool = False) -> str:
+        res = facts[field]
+        if res["status"] != "FOUND":
+            return "Missing"
+        v = res["observations"][0]["value"]
+        return _fmt_date(v) if as_date else _fmt_value(v)
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Age (years)", first("demographics.age"))
-    c2.metric("Sex", first("demographics.sex"))
-    c3.metric("Screening date", first("visits.screening_date"))
-    c4.metric("Planned enrollment", first("visits.enrollment_date"))
+    c1.metric("Age", fact("demographics.age"))
+    c2.metric("Sex", fact("demographics.sex"))
+    c3.metric("Screening date", fact("visits.screening_date", as_date=True))
+    c4.metric("Planned enrollment", fact("visits.enrollment_date", as_date=True))
 
-    # --- Data availability against the extracted criteria ------------------
-    st.markdown("#### Data availability for the protocol")
-    extraction: Optional[ProtocolExtraction] = st.session_state.get("extraction")
+    # 2. Completeness -----------------------------------------------------------
+    st.markdown("### 2. Is the record complete?")
+    extraction = ensure_extraction(retrieval, study)
     if extraction is None:
-        st.caption("Run the Protocol Agent first to see which required fields this record has.")
+        st.info("Run the Protocol Agent in the **Extracted criteria** tab first, so the app knows what the "
+                "study asks about.")
     else:
         needed: dict = {}
         for c in extraction.criteria:
             for r in c.required_data:
-                needed.setdefault(r.field, []).append(c.criterion_id)
+                needed.setdefault(r.field, set()).add(c.criterion_id)
         rows = []
-        for field, ids in sorted(needed.items()):
+        for field, ids in needed.items():
             res = agent.get_field(pid, field)
-            status = res["status"] if res.get("consistency") != "CONFLICTING" else "CONFLICTING"
-            rows.append({"Field": field, "Status": status, "Observations": len(res.get("observations", [])),
-                         "Needed by": ", ".join(sorted(set(ids)))})
+            status = "CONFLICTING" if res.get("consistency") == "CONFLICTING" else res["status"]
+            rows.append({"Information": field_label(field), "Category": field_group(field),
+                         "Status": STATUS_TEXT.get(status, status), "Used by criteria": ", ".join(sorted(ids)),
+                         "_status": status})
         df = pd.DataFrame(rows)
-        counts = df["Status"].value_counts()
+        df["_order"] = df["_status"].map({"CONFLICTING": 0, "NOT_RECORDED": 1, "FOUND": 2})
+        df = df.sort_values(["_order", "Category", "Information"]).drop(columns="_order")
+        n_found = int((df["_status"] == "FOUND").sum())
+        n_missing = int((df["_status"] == "NOT_RECORDED").sum())
+        n_conflict = int((df["_status"] == "CONFLICTING").sum())
+
+        st.caption(f"The study's criteria ask about {len(df)} pieces of information. Here is what this record has.")
         a, b, c = st.columns(3)
-        a.metric("Fields found", int(counts.get("FOUND", 0)))
-        b.metric("Not recorded", int(counts.get("NOT_RECORDED", 0)))
-        c.metric("Conflicting", int(counts.get("CONFLICTING", 0)))
-        only_gaps = st.checkbox("Show only NOT_RECORDED and CONFLICTING fields")
-        if only_gaps:
-            df = df[df["Status"] != "FOUND"]
-        st.dataframe(df, hide_index=True, width="stretch")
-        st.caption("This is a data-completeness check only. It does not evaluate eligibility.")
+        a.metric("✅ In the record", n_found)
+        b.metric("⚠️ Missing", n_missing)
+        c.metric("❗ Sources disagree", n_conflict)
 
-    # --- Ask the Patient Agent ---------------------------------------------
-    st.markdown("#### Ask the Patient Agent")
-    st.caption("Each question is a logged tool call (see the Agent activity tab).")
-    q1, q2 = st.columns([2, 1])
-    tool = q1.radio("Tool", ["get_field", "get_medication_history"], horizontal=True)
-    if tool == "get_field":
-        field = q2.selectbox("Field", sorted(DATA_FIELDS))
-        args = {"patient_id": pid, "field": field}
-    else:
-        drug = q2.text_input("Drug name (blank for all)", "")
-        args = {"patient_id": pid, "drug": drug}
-    if st.button("🔎 Ask Patient Agent"):
-        st.session_state["patient_answer"] = (args, agent.call(tool, args))
-    answer = st.session_state.get("patient_answer")
-    if answer and answer[0].get("patient_id") == pid:
-        result = answer[1]
-        status = result.get("status")
-        if result.get("consistency") == "CONFLICTING":
-            st.warning(f"CONFLICTING: {result.get('message', '')}")
-        elif status == "FOUND":
-            st.success(f"FOUND: {len(result['observations'])} observation(s)")
+        problems_only = st.toggle("Show only missing or disagreeing items", value=True)
+        shown = df[df["_status"] != "FOUND"] if problems_only else df
+        if shown.empty:
+            st.success("Everything the criteria ask about is in this record, and no sources disagree.")
         else:
-            st.warning(f"{status}: {result.get('message', '')}")
-        st.json(result, expanded=True)
+            st.dataframe(shown.drop(columns="_status"), hide_index=True, width="stretch")
+        if "assessment.investigator_judgement" in needed:
+            st.caption("*Investigator's clinical judgement* is always missing: it has to come from the study "
+                       "doctor, not from the record.")
+        st.caption("This only checks whether information is present. It does not decide eligibility.")
 
-    # --- Full record --------------------------------------------------------
-    with st.expander(f"Full SYNTHETIC record for {pid}"):
+    # 3. Look something up --------------------------------------------------------
+    st.markdown("### 3. Look something up")
+    st.caption("The Patient Agent finds it in the record and shows exactly where each value came from. "
+               "Every lookup is also recorded in the **Agent activity** tab.")
+    fields = sorted(DATA_FIELDS, key=lambda f: (field_group(f), field_label(f)))
+    q1, q2 = st.columns([3, 2])
+    field = q1.selectbox("What do you want to look up?", fields,
+                         index=fields.index("labs.anc"),
+                         format_func=lambda f: f"{field_group(f)} › {field_label(f)}")
+    drug = ""
+    if field == "medications.history":
+        drug = q2.text_input("Search for a medicine (optional)", placeholder="e.g. rituximab")
+
+    if st.button("🔎 Look up", type="primary"):
+        if field == "medications.history":
+            result = agent.call("get_medication_history", {"patient_id": pid, "drug": drug})
+        else:
+            result = agent.call("get_field", {"patient_id": pid, "field": field})
+        st.session_state["patient_answer"] = ((pid, field, drug), result)
+    answer = st.session_state.get("patient_answer")
+    if answer and answer[0] == (pid, field, drug):
+        render_lookup_result(answer[1], field_label(field))
+
+    # 4. Full record ----------------------------------------------------------------
+    st.markdown("### 4. Full record")
+    with st.expander(f"See everything in {record.display_name.replace('Synthetic ', '')}'s record"):
         rows = []
-        for field, observations in record.observations.items():
+        for f, observations in sorted(record.observations.items(), key=lambda kv: (field_group(kv[0]), field_label(kv[0]))):
             for i, o in enumerate(observations):
-                rows.append({"Evidence ID": f"{pid}/{field}/{i}", "Field": field, "Value": _fmt_value(o.value),
-                             "Unit": o.unit, "Date": o.date, "End date": o.end_date, "Source": o.source,
-                             "Note": o.note, "Attributes": _fmt_value(o.attributes) if o.attributes else None})
+                rows.append({
+                    "Category": field_group(f), "Information": field_label(f), "Result": _fmt_value(o.value),
+                    "Unit": o.unit or "", "Date": _fmt_date(o.date) if o.date else "",
+                    "Until": _fmt_date(o.end_date) if o.end_date else "", "Source": o.source,
+                    "Note": o.note or "", "Reference": f"{pid}/{f}/{i}",
+                })
         st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
         st.download_button(
-            "⬇️ Download this SYNTHETIC record (.json)",
+            "⬇️ Download this practice record (.json)",
             data=record.model_dump_json(indent=2),
             file_name=f"{pid}_SYNTHETIC.json",
             mime="application/json",
@@ -564,7 +665,7 @@ def main() -> None:
         return
 
     tab_overview, tab_elig, tab_criteria, tab_patients, tab_log, tab_arms, tab_raw = st.tabs(
-        ["📋 Study overview", "📝 Eligibility criteria", "🧩 Extracted criteria", "🧑‍⚕️ Synthetic patients",
+        ["📋 Study overview", "📝 Eligibility criteria", "🧩 Extracted criteria", "🧑‍⚕️ Practice patients",
          "🛰️ Agent activity", "💊 Arms & outcomes", "🗂️ Raw API response"]
     )
     with tab_overview:
@@ -574,7 +675,7 @@ def main() -> None:
     with tab_criteria:
         render_extracted_criteria(retrieval, study)
     with tab_patients:
-        render_patients()
+        render_patients(retrieval, study)
     with tab_log:
         render_activity_log()
     with tab_arms:

@@ -3,7 +3,7 @@
   "synthetic": true,
   "patient_id": "SYN-001",
   "display_name": "Synthetic Patient A",
-  "scenario": "Complete record with clear values well away from every threshold. Even here, some criteria (e.g. the anemia criterion with no published hemoglobin cutoff, investigator-judgement items) cannot be decided from data and must go to human review.",
+  "scenario": "A complete record with no borderline values. It is the baseline case: even here, a few criteria cannot be decided from the record alone. For example, the protocol never states a hemoglobin cutoff.",
   "observations": {
     "access.peripheral_venous": [
       {

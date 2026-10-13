@@ -3,7 +3,7 @@
   "synthetic": true,
   "patient_id": "SYN-002",
   "display_name": "Synthetic Patient B",
-  "scenario": "Boundary values for strict inequalities: age exactly 18, ANC exactly 1500, platelets exactly 50,000, IgG exactly 450, IgA exactly 10, eGFR exactly 20, UPCR exactly 1.0 (inclusion needs > 1), urine WBC exactly 5, and AST exactly 2 x ULN (exclusion uses >=).",
+  "scenario": "Results sit exactly on the study's limits. For example, neutrophils are exactly 1,500 where the rule is 'below 1,500', and urine protein is exactly 1.0 where the rule is 'above 1'. This checks that 'below' and 'above' are applied precisely.",
   "observations": {
     "access.peripheral_venous": [
       {

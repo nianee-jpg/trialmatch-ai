@@ -3,7 +3,7 @@
   "synthetic": true,
   "patient_id": "SYN-003",
   "display_name": "Synthetic Patient C",
-  "scenario": "Missing and incomplete data: no hemoglobin, IgA, QuantiFERON, HIV, anti-dsDNA, urine WBC, casts, menses status or contraception answer on file. UPCR is from a spot urine, not a 24-hour collection. Biopsy is about 4.5 months old (outside 3 months, inside 12). ANA is 20 days before visit -1 (outside the 14-day window). Last cyclophosphamide dose about 6.2 months before screening.",
+  "scenario": "Several results are missing, the urine protein test used a spot sample instead of a 24-hour collection, and some dates fall just outside the study's time limits. This checks that the app reports gaps instead of guessing.",
   "observations": {
     "access.peripheral_venous": [
       {

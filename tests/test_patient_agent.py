@@ -184,3 +184,10 @@ def test_syn004_prior_treatment_and_windows(agent):
     assert agent.get_medication_history("SYN-004", "rituximab")["status"] == "FOUND"
     assert (screening - date(agent, "SYN-004", "procedures.ivig_plasmapheresis_leukopheresis")).days == 77
     assert (enrollment - date(agent, "SYN-004", "vaccinations.live_attenuated")).days == 116
+
+
+def test_every_field_has_a_plain_language_label():
+    from trialmatch.data_dictionary import FIELD_GROUPS, FIELD_LABELS
+
+    assert set(FIELD_LABELS) == set(DATA_FIELDS)
+    assert {f.split(".")[0] for f in DATA_FIELDS} <= set(FIELD_GROUPS)
