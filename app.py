@@ -36,6 +36,7 @@ from trialmatch.data_dictionary import DATA_FIELDS, field_group, field_label
 from trialmatch.text_utils import unescape_markdown
 from trialmatch.eligibility_models import CriterionEvaluation, ScreeningResult
 from trialmatch.report import build_html_report
+from trialmatch.screening_summary import follow_up, headline, option_label, part_context, status_counts
 from trialmatch.verification_models import CriterionVerification, Severity, VerificationReport
 from trialmatch.ui_text import (
     CHECK_LABELS,
@@ -683,7 +684,7 @@ def run_screening(pid: str, patients: dict, extraction: ProtocolExtraction, stud
 
 
 def render_verification_detail(v: CriterionVerification) -> None:
-    st.markdown(f"**Verification: {OUTCOME_LABELS[v.outcome.value]}**")
+    st.markdown(f"**Accuracy check of this result: {OUTCOME_LABELS[v.outcome.value]}**")
     passed = sorted({CHECK_LABELS.get(c, c) for c in (
         "criterion_text", "evidence_matches", "numbers_supported", "dates_supported", "decision_language")}
         - {CHECK_LABELS.get(c.check, c.check) for c in v.problems})
@@ -708,10 +709,13 @@ def _evidence_table(evaluation: CriterionEvaluation) -> pd.DataFrame:
     } for e in evaluation.evidence])
 
 
-def render_evaluation_detail(e: CriterionEvaluation, v: Optional[CriterionVerification] = None) -> None:
+def render_evaluation_detail(e: CriterionEvaluation, v: Optional[CriterionVerification] = None,
+                             context: Optional[str] = None) -> None:
     kind = "Inclusion" if e.type == "INCLUSION" else "Exclusion"
-    st.markdown(f"#### {e.criterion_id} · {kind}" + (f" (part of {e.parent_id})" if e.parent_id else ""))
+    st.markdown(f"#### {e.criterion_id} · {kind}" + (f" (an option of {e.parent_id})" if e.parent_id else ""))
     st.text(e.criterion_text)
+    if context:
+        st.info(f"**What this means for {e.parent_id}:** {context}")
     box = {"MET": st.success, "ABSENT": st.success, "NOT_MET": st.error, "PRESENT": st.error}.get(e.status, st.warning)
     box(f"**{RESULT_LABELS[e.status]}**: {RESULT_MEANINGS[e.status]}\n\n{e.reason}")
     st.caption(f"How it was decided: {METHOD_LABELS.get(e.method.value, e.method.value)}")
@@ -773,11 +777,26 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
                 "The results are then checked independently by the Verification Agent.")
         return
 
+    # Status headline ------------------------------------------------------------
+    head = headline(result)
+    box = {"rule_out": st.error, "review": st.warning, "unknown": st.warning, "none": st.info}[head.level]
+    box(f"### {patients[pid].display_name.replace('Synthetic ', '')}: {head.title}\n\n"
+        + "\n".join(f"- {d}" for d in head.details)
+        + "\n\n*This is a pre-screening status, not an eligibility decision.*")
+
+    vc = verification.counts()
+    if verification.passed and not vc["VERIFIED_WITH_WARNINGS"]:
+        st.caption(f"✅ **Accuracy check of the app's work passed:** all {len(verification.results)} results were "
+                   "re-checked against the protocol and the record. This checks the app, not the patient.")
+    elif verification.passed:
+        st.warning(f"**Accuracy check of the app's work: {vc['VERIFIED_WITH_WARNINGS']} warning(s).** "
+                   "See the Accuracy check column.")
+    else:
+        st.error(f"**Accuracy check of the app's work failed for {vc['FAILED']} result(s).** Do not rely on those "
+                 "results; see the Accuracy check column and each result's details.")
+
     # Summary -----------------------------------------------------------------
-    top = [e for e in result.evaluations if e.parent_id is None]
-    counts = {t: {} for t in ("INCLUSION", "EXCLUSION")}
-    for e in top:
-        counts[e.type][e.status] = counts[e.type].get(e.status, 0) + 1
+    counts = status_counts(result)
     st.markdown("### Summary")
     left, right = st.columns(2)
     with left:
@@ -790,74 +809,76 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
         cols = st.columns(4)
         for col, s in zip(cols, ["ABSENT", "PRESENT", "UNKNOWN", "NEEDS_HUMAN_REVIEW"]):
             col.metric(RESULT_LABELS[s], counts["EXCLUSION"].get(s, 0))
-    st.caption("Counts are for main criteria; parts such as INC-03.a are listed in the table below.")
-    vc = verification.counts()
-    if verification.passed and not vc["VERIFIED_WITH_WARNINGS"]:
-        st.success(f"**Verification passed.** All {len(verification.results)} results were re-checked against the "
-                   "protocol text and the record: evidence matches, numbers and dates are supported, no protocol "
-                   "gap or conflict was decided, and comparisons give the same answer when redone.")
-    elif verification.passed:
-        st.warning(f"**Verification passed with {vc['VERIFIED_WITH_WARNINGS']} warning(s).** See the Verified column.")
-    else:
-        st.error(f"**Verification failed for {vc['FAILED']} result(s).** Do not rely on those results; see the "
-                 "Verified column and each result's details.")
+    st.caption("Counts are for the main criteria. Some criteria offer several options (for example INC-03.b.1, "
+               "INC-03.b.2 and INC-03.b.3); only one option has to be met, so an option that is not met does not "
+               "count against the patient when another option is met.")
     with st.expander("What do these results mean?"):
         for s, meaning in RESULT_MEANINGS.items():
             st.markdown(f"- **{RESULT_LABELS[s]}**: {meaning}")
 
     # Follow-up -----------------------------------------------------------------
     st.markdown("### What to follow up")
-    rule_out = [e for e in top if e.status in ("NOT_MET", "PRESENT")]
-    unknown = [e for e in top if e.status == "UNKNOWN"]
-    review = [e for e in top if e.status == "NEEDS_HUMAN_REVIEW"]
+    todo = follow_up(result)
     f1, f2, f3 = st.columns(3)
     with f1:
-        st.markdown(f"**⛔ May rule the patient out ({len(rule_out)})**")
-        if rule_out:
-            for e in rule_out:
+        st.markdown(f"**⛔ May rule the patient out ({len(todo.rule_out)})**")
+        if todo.rule_out:
+            for e in todo.rule_out:
                 st.markdown(f"- **{e.criterion_id}**: {e.reason}")
         else:
             st.caption("Nothing in the record clearly rules this patient out. That is not the same as eligible.")
     with f2:
-        st.markdown(f"**❔ Information to request ({len(unknown)})**")
-        missing = sorted({field_label(m) for e in unknown for m in e.missing_information})
+        st.markdown(f"**❔ Information to request ({len(todo.unknown)})**")
+        missing = sorted({field_label(m) for e in todo.unknown for m in e.missing_information})
         if missing:
             for m in missing:
                 st.markdown(f"- {m}")
         else:
             st.caption("Nothing missing.")
     with f3:
-        st.markdown(f"**👤 Decisions for the study team ({len(review)})**")
-        for e in review:
-            why = e.review_reasons[0] if e.review_reasons else "Needs judgement"
-            st.markdown(f"- **{e.criterion_id}**: {why}")
+        st.markdown(f"**👤 Decisions for the study team ({len(todo.review)})**")
+        if todo.review:
+            for e in todo.review:
+                why = e.review_reasons[0] if e.review_reasons else "Needs judgement"
+                st.markdown(f"- **{e.criterion_id}**: {why}")
+        else:
+            st.caption("None.")
 
     # Table ---------------------------------------------------------------------
     st.markdown("### Every criterion")
     t1, t2, t3 = st.columns([2, 2, 3])
     which = t1.radio("Show", ["All", "Inclusion", "Exclusion"], horizontal=True, key="screen_which")
-    hide_parts = t2.toggle("Hide parts of criteria", value=False)
+    hide_parts = t2.toggle("Hide options (sub-criteria)", value=False)
     statuses = t3.multiselect("Result", list(RESULT_LABELS), format_func=lambda s: RESULT_LABELS[s])
     shown = [e for e in result.evaluations
              if (which == "All" or e.type.title() == which)
              and (not hide_parts or e.parent_id is None)
              and (not statuses or e.status in statuses)]
+
+    def result_cell(e: CriterionEvaluation) -> str:
+        tag = option_label(result, e)
+        return RESULT_LABELS[e.status] + (f" ({tag})" if tag else "")
+
+    def why_cell(e: CriterionEvaluation) -> str:
+        context = part_context(result, e)
+        return f"{context} {e.reason}" if context else e.reason
+
     table = pd.DataFrame([{
         "ID": ("↳ " if e.parent_id else "") + e.criterion_id,
-        "Type": e.type.title(),
+        "Result": result_cell(e),
         "Criterion": e.criterion_text,
-        "Result": RESULT_LABELS[e.status],
+        "Why": why_cell(e),
         "How decided": METHOD_LABELS.get(e.method.value, e.method.value),
-        "Verified": OUTCOME_LABELS[verification.by_id(e.criterion_id).outcome.value],
-        "Why": e.reason,
+        "Accuracy check": OUTCOME_LABELS[verification.by_id(e.criterion_id).outcome.value],
     } for e in shown])
-    st.caption(f"Showing {len(shown)} of {len(result.evaluations)}.")
+    st.caption(f"Showing {len(shown)} of {len(result.evaluations)}. Rows marked ↳ are options of the "
+               "criterion above them.")
     if not table.empty:
         st.dataframe(table, hide_index=True, width="stretch")
         chosen = st.selectbox("Open a result to see its evidence", [e.criterion_id for e in shown],
-                              format_func=lambda i: f"{i} · {RESULT_LABELS[result.by_id(i).status]} · "
+                              format_func=lambda i: f"{i} · {result_cell(result.by_id(i))} · "
                                                     f"{result.by_id(i).criterion_text[:70]}")
-        render_evaluation_detail(result.by_id(chosen), verification.by_id(chosen))
+        render_evaluation_detail(result.by_id(chosen), verification.by_id(chosen), part_context(result, result.by_id(chosen)))
 
     # Downloads -----------------------------------------------------------------
     st.markdown("### Download")
