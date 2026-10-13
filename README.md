@@ -237,7 +237,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `171 passed`.
+**4. Run the tests.** You should see `176 passed`.
 
 ```bash
 python -m pytest

@@ -76,7 +76,9 @@ def test_unneeded_option_is_not_counted_against_the_patient(env):
 def test_options_when_criterion_not_met(env):
     r = env[3]["SYN-003"]
     assert option_label(r, r.by_id("INC-03.a")) == "option"
-    assert "not met by any option yet" in part_context(r, r.by_id("INC-03.a"))
+    assert part_context(r, r.by_id("INC-03.a")) == (
+        "INC-03 cannot be decided yet: no option is met so far, and some options are missing information. "
+        "This option is not met.")
 
 
 def test_main_criteria_have_no_option_context(env):
@@ -93,3 +95,25 @@ def test_report_shows_status_and_options(env):
     assert "Pre-screening status: Needs review by the study team" in html
     assert "option · not needed" in html
     assert "already met through INC-03.b.1 and INC-03.b.3" in html
+
+
+@pytest.mark.parametrize("pid", ["SYN-001", "SYN-002", "SYN-003", "SYN-004", "SYN-005"])
+def test_every_patient_display_is_consistent(env, pid):
+    """For every patient: options agree with their criterion, every option explains itself,
+    and every main criterion that needs action is named in the headline."""
+    r = env[3][pid]
+    listed = " ".join(headline(r).details)
+    for e in r.evaluations:
+        if e.parent_id is None:
+            if e.status in ("NOT_MET", "PRESENT", "UNKNOWN", "NEEDS_HUMAN_REVIEW"):
+                assert e.criterion_id in listed, f"{pid}: {e.criterion_id} missing from the headline"
+            continue
+        assert part_context(r, e), f"{pid}: {e.criterion_id} has no explanation"
+        parent = r.by_id(e.parent_id)
+        options = [k for k in r.evaluations if k.parent_id == parent.criterion_id]
+        if parent.status == "MET":
+            assert any(k.status == "MET" for k in options), f"{pid}: {parent.criterion_id} met without a met option"
+            if e.status != "MET":
+                assert option_label(r, e) == "option · not needed"
+        if all(k.status == "NOT_MET" for k in options):
+            assert parent.status == "NOT_MET"

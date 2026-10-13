@@ -99,8 +99,13 @@ def part_context(result: ScreeningResult, e: CriterionEvaluation) -> Optional[st
                 f"through {_join(others)}.")
     if parent_ok:
         return f"Option not needed: {parent.criterion_id} is already met."
-    return (f"{parent.criterion_id} is not met by any option yet; this option is "
-            f"{e.status.replace('_', ' ').lower()}.")
+    this = f"This option is {e.status.replace('_', ' ').lower()}."
+    if parent.status == "UNKNOWN":
+        return (f"{parent.criterion_id} cannot be decided yet: no option is met so far, and some options are "
+                f"missing information. {this}")
+    if parent.status == "NEEDS_HUMAN_REVIEW":
+        return f"{parent.criterion_id} needs a person to decide: no option is clearly met. {this}"
+    return f"No option of {parent.criterion_id} is met, so {parent.criterion_id} is not met. {this}"
 
 
 def option_label(result: ScreeningResult, e: CriterionEvaluation) -> Optional[str]:
