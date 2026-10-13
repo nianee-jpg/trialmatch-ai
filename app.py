@@ -30,6 +30,8 @@ from trialmatch.activity_log import ActivityLog
 from trialmatch.agents.patient_agent import PatientAgent, PatientDataError, load_patients
 from trialmatch.agents.protocol_agent import ProtocolAgent, make_claude_client
 from trialmatch.data_dictionary import DATA_FIELDS, field_group, field_label
+from trialmatch.text_utils import unescape_markdown
+from trialmatch.ui_text import EVENT_LABELS, TOOL_LABELS, flag_title, plain_log_detail
 from trialmatch.protocol_models import Criterion, ProtocolExtraction
 from trialmatch.study_parser import StudyMetadata, parse_study
 
@@ -282,22 +284,31 @@ def run_protocol_agent(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
     st.session_state["extraction_sha"] = retrieval.sha256
 
 
+def _rule_text(t) -> str:
+    words = {"<": "below", "<=": "at or below", ">": "above", ">=": "at or above"}
+    return words[t.comparator.value]
+
+
+def _numbers_summary(c: Criterion) -> str:
+    out = []
+    for t in c.thresholds:
+        value = "[missing]" if t.value is None else f"{t.value:,g}"
+        unit = "× upper limit of normal" if t.relative_to else (t.unit or "(no unit)")
+        name = field_label(t.parameter) if t.parameter else "?"
+        out.append(f"{name} {_rule_text(t)} {value} {unit}")
+    return "; ".join(out)
+
+
 def _criteria_table(criteria: list) -> pd.DataFrame:
     return pd.DataFrame(
         [
             {
                 "ID": c.criterion_id,
                 "Type": c.type.value.title(),
-                "Criterion (readable)": c.display_text,
-                "Thresholds": "; ".join(
-                    f"{t.parameter or '?'} {t.comparator.value} "
-                    f"{'MISSING' if t.value is None else f'{t.value:g}'}"
-                    f"{' x ULN' if t.relative_to else (' ' + t.unit if t.unit else '')}"
-                    for t in c.thresholds
-                ),
-                "Time windows": "; ".join(f"{w.amount} {w.unit} / {w.anchor or 'no anchor'}" for w in c.time_windows),
-                "Required data": ", ".join(sorted({r.field for r in c.required_data})),
-                "Flags": ", ".join(sorted({f.code.value for f in c.flags})),
+                "Criterion": c.display_text,
+                "Numbers to check": _numbers_summary(c),
+                "Needs review because": "; ".join(dict.fromkeys(flag_title(f.code.value) for f in c.flags)),
+                "Information needed": ", ".join(dict.fromkeys(field_label(r.field) for r in c.required_data)),
             }
             for c in criteria
         ]
@@ -305,100 +316,130 @@ def _criteria_table(criteria: list) -> pd.DataFrame:
 
 
 def render_criterion_detail(c: Criterion) -> None:
-    st.markdown(f"#### {c.criterion_id} · {c.type.value.title()}"
-                + (f" · sub-criterion of {c.parent_id}" if c.parent_id else ""))
+    kind = "Inclusion criterion" if c.type.value == "INCLUSION" else "Exclusion criterion"
+    st.markdown(f"#### {c.criterion_id} · {kind}" + (f" (part of {c.parent_id})" if c.parent_id else ""))
+
+    st.markdown("**What the protocol says**")
+    st.text(c.display_text)
+    st.markdown("**What to check**")
+    st.info(c.normalized_interpretation)
+    if c.interpretation_source == "claude":
+        st.caption("Wording suggested by Claude and checked by the app for added numbers.")
+
     left, right = st.columns(2)
     with left:
-        st.markdown("**Exact original text** (as stored by ClinicalTrials.gov, Markdown escapes included)")
-        st.code(c.original_text, language=None, wrap_lines=True)
-        st.markdown("**Readable text**")
-        st.text(c.display_text)
-        st.markdown(f"**Normalized interpretation** _(source: {c.interpretation_source})_")
-        st.info(c.normalized_interpretation)
-    with right:
-        st.markdown("**Source reference**")
-        st.caption(
-            f"`{c.source.json_path}` · characters {c.source.char_start}–{c.source.char_end} · "
-            f"line {c.source.line_number}"
-            + (f" · file `{c.source.raw_file}`" if c.source.raw_file else "")
-        )
         if c.thresholds:
-            st.markdown("**Thresholds**")
-            st.dataframe(pd.DataFrame([t.model_dump(mode="json") for t in c.thresholds]), hide_index=True)
+            st.markdown("**Numbers to check**")
+            st.dataframe(pd.DataFrame([{
+                "Information": field_label(t.parameter) if t.parameter else "Unclear",
+                "Rule": _rule_text(t),
+                "Value": "missing from protocol" if t.value is None else f"{t.value:,g}",
+                "Unit": "× upper limit of normal" if t.relative_to else (t.unit or "not given"),
+                "Exactly equal counts?": "No" if t.comparator.is_strict else "Yes",
+            } for t in c.thresholds]), hide_index=True, width="stretch")
         if c.time_windows:
-            st.markdown("**Time windows**")
-            st.dataframe(pd.DataFrame([w.model_dump(mode="json") for w in c.time_windows]), hide_index=True)
-        st.markdown("**Required patient data**")
+            st.markdown("**Time limits**")
+            st.dataframe(pd.DataFrame([{
+                "Limit (as written)": unescape_markdown(w.source_text),
+                "Counted from": w.anchor or "not stated in the protocol",
+            } for w in c.time_windows]), hide_index=True, width="stretch")
+        st.markdown("**Information needed from the patient record**")
         if c.required_data:
             for r in c.required_data:
-                st.markdown(f"- `{r.field}`: {DATA_FIELDS.get(r.field, '')}" + (f" ({r.detail})" if r.detail else ""))
+                st.markdown(f"- {field_label(r.field)}" + (f" ({r.detail})" if r.detail else ""))
         else:
-            st.caption("None mapped (see sub-criteria or flags).")
+            st.caption("See the parts of this criterion listed above.")
+    with right:
+        st.markdown("**Why a person needs to review this**")
         if c.flags:
-            st.markdown("**Flags for human review**")
             for f in c.flags:
-                st.warning(f"**{f.code.value}**: {f.message}")
+                st.warning(f"**{flag_title(f.code.value)}.** {f.message}")
+        else:
+            st.success("Nothing flagged. The wording is clear enough to check from the record.")
+
+    with st.expander("Exact source text and location"):
+        st.caption("Exactly as stored by ClinicalTrials.gov. The backslashes are formatting codes in the original.")
+        st.code(c.original_text, language=None, wrap_lines=True)
+        st.caption(
+            f"Line {c.source.line_number} of the eligibility text (characters "
+            f"{c.source.char_start}–{c.source.char_end})"
+            + (f", file `{c.source.raw_file}`" if c.source.raw_file else "")
+            + (f", SHA-256 `{c.source.raw_sha256[:16]}…`" if c.source.raw_sha256 else "") + "."
+        )
+        if c.flags:
+            st.caption("Internal flag codes: " + ", ".join(f.code.value for f in c.flags))
 
 
 def render_extracted_criteria(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
-    st.caption(
-        "The Protocol Agent splits the eligibility text into individual criteria, extracts thresholds and "
-        "time windows, and flags anything it cannot read reliably. It does not evaluate any patient."
+    st.markdown(
+        "The app has read the eligibility text and broken it into individual criteria. For each one it shows "
+        "**what to check**, **which patient information is needed**, and **anything a person must decide**. "
+        "No patient is evaluated on this page."
     )
-    extraction: Optional[ProtocolExtraction] = st.session_state.get("extraction")
+    extraction = ensure_extraction(retrieval, study)
     stale = extraction is not None and st.session_state.get("extraction_sha") != retrieval.sha256
 
-    if st.button("▶️ Run Protocol Agent", type="primary"):
-        with st.spinner("Extracting criteria…"):
+    label = "🔄 Run again" if extraction is not None else "▶️ Extract the criteria"
+    if st.button(label, help="Re-reads the eligibility text from scratch."):
+        with st.spinner("Reading the criteria…"):
             run_protocol_agent(retrieval, study)
         extraction, stale = st.session_state["extraction"], False
 
     if extraction is None:
-        st.info("Click **Run Protocol Agent** to extract the criteria.")
+        st.info("Click **Extract the criteria** to start.")
         return
     if stale:
-        st.warning("The study record changed since this extraction. Run the agent again.")
+        st.warning("The study record has changed since these criteria were extracted. Click **Run again**.")
 
     criteria = extraction.criteria
     flagged = [c for c in criteria if c.flags]
-    col1, col2, col3, col4, col5 = st.columns(5)
-    col1.metric("Criteria", len(criteria))
-    col2.metric("Inclusion", sum(c.type.value == "INCLUSION" for c in criteria))
-    col3.metric("Exclusion", sum(c.type.value == "EXCLUSION" for c in criteria))
-    col4.metric("Flagged for review", len(flagged))
-    col5.metric("Verification", "PASS" if extraction.passed_verification else "FAIL")
-    st.caption(f"Mode: **{extraction.mode}**" + (f" · model `{extraction.model}`" if extraction.model else ""))
+    m1, m2, m3, m4, m5 = st.columns(5)
+    m1.metric("Criteria", len(criteria))
+    m2.metric("Inclusion", sum(c.type.value == "INCLUSION" for c in criteria))
+    m3.metric("Exclusion", sum(c.type.value == "EXCLUSION" for c in criteria))
+    m4.metric("⚠️ Need a person", len(flagged))
+    m5.metric("Accuracy check", "✅ Passed" if extraction.passed_verification else "❌ Problems")
 
-    if extraction.verification_issues:
-        st.error("Verification found problems. Do not rely on this extraction until they are resolved.")
-        st.dataframe(pd.DataFrame([i.model_dump() for i in extraction.verification_issues]), hide_index=True)
+    if extraction.passed_verification:
+        st.success("**Accuracy check passed.** Every criterion matches the published text word for word, no text "
+                   "was skipped, and no numbers were added that are not in the protocol.")
     else:
-        st.success(
-            "Verification passed: every criterion's text matches the source exactly, all source text is "
-            "covered, no numbers were introduced, and missing thresholds are flagged."
-        )
+        st.error("**Accuracy check found problems.** Do not rely on these criteria until they are fixed.")
+        st.dataframe(pd.DataFrame([{"Criterion": i.criterion_id or "", "Problem": i.message}
+                                   for i in extraction.verification_issues]), hide_index=True)
+    st.caption("Made by: " + ("the built-in rules (no AI)" if extraction.mode.startswith("offline")
+                              else f"the built-in rules, with wording suggested by Claude (`{extraction.model}`)"))
 
-    f1, f2 = st.columns(2)
-    type_filter = f1.multiselect("Type", ["Inclusion", "Exclusion"], default=["Inclusion", "Exclusion"])
-    all_flags = sorted({f.code.value for c in criteria for f in c.flags})
-    flag_filter = f2.multiselect("Only criteria with flag", all_flags)
+    f1, f2 = st.columns([2, 3])
+    which = f1.radio("Show", ["All", "Inclusion", "Exclusion"], horizontal=True)
+    review_only = f2.toggle("Only criteria that need a person to review")
+    reasons: list = []
+    if review_only:
+        all_reasons = sorted({flag_title(f.code.value) for c in criteria for f in c.flags})
+        reasons = st.multiselect("Reason (leave empty for any)", all_reasons)
 
     shown = [
         c for c in criteria
-        if c.type.value.title() in type_filter
-        and (not flag_filter or any(f.code.value in flag_filter for f in c.flags))
+        if (which == "All" or c.type.value.title() == which)
+        and (not review_only or (c.flags and (not reasons or any(flag_title(f.code.value) in reasons for f in c.flags))))
     ]
+    st.caption(f"Showing {len(shown)} of {len(criteria)} criteria.")
     st.dataframe(_criteria_table(shown), hide_index=True, width="stretch")
 
     if shown:
-        chosen = st.selectbox("Criterion detail", [c.criterion_id for c in shown])
+        chosen = st.selectbox(
+            "Open a criterion for details",
+            [c.criterion_id for c in shown],
+            format_func=lambda i: f"{i} · {extraction.by_id(i).display_text[:80]}",
+        )
         render_criterion_detail(extraction.by_id(chosen))
 
     st.download_button(
-        "⬇️ Download structured criteria (.json)",
+        "⬇️ Download all criteria (.json)",
         data=extraction.model_dump_json(indent=2),
         file_name=f"{extraction.nct_id}_criteria.json",
         mime="application/json",
+        help="Machine-readable version with exact source locations, for traceability.",
     )
 
 
@@ -575,7 +616,7 @@ def render_patients(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
     # 3. Look something up --------------------------------------------------------
     st.markdown("### 3. Look something up")
     st.caption("The Patient Agent finds it in the record and shows exactly where each value came from. "
-               "Every lookup is also recorded in the **Agent activity** tab.")
+               "Every lookup is also recorded in the **Activity log** tab.")
     fields = sorted(DATA_FIELDS, key=lambda f: (field_group(f), field_label(f)))
     q1, q2 = st.columns([3, 2])
     field = q1.selectbox("What do you want to look up?", fields,
@@ -617,27 +658,41 @@ def render_patients(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
 
 
 def render_activity_log() -> None:
+    st.markdown("Every step the agents took, in order. Use it to see exactly how a result was reached.")
     log = get_log()
     if not log.entries:
-        st.info("No agent activity yet. Run the Protocol Agent, or ask the Patient Agent a question.")
+        st.info("Nothing yet. Open **Extracted criteria** or **Practice patients** and the steps will appear here.")
         return
-    if st.button("🧹 Clear log"):
-        log.entries.clear()
-        st.rerun()
+
     df = pd.DataFrame(log.as_rows())
-    agents = sorted(df["agent"].unique())
-    chosen_agents = st.multiselect("Agents", agents, default=agents)
-    df = df[df["agent"].isin(chosen_agents)]
-    events = sorted(df["event"].unique())
-    chosen = st.multiselect("Event types", events, default=events)
-    tools_used = sorted(t for t in df["tool"].dropna().unique())
-    tool_filter = st.multiselect("Only these tools", tools_used)
-    view = df[df["event"].isin(chosen)]
-    if tool_filter:
-        view = view[view["tool"].isin(tool_filter)]
-    st.caption(f"{len(view)} of {len(df)} entries")
+    readable = pd.DataFrame({
+        "Time (UTC)": df["timestamp"],
+        "Agent": df["agent"],
+        "What happened": df["event"].map(lambda e: EVENT_LABELS.get(e, e)),
+        "Step": df["tool"].map(lambda t: TOOL_LABELS.get(t, t) if isinstance(t, str) else ""),
+        "Details": df["detail"].map(plain_log_detail),
+    })
+
+    m1, m2, m3, m4 = st.columns(4)
+    m1.metric("Steps recorded", len(df))
+    m2.metric("Protocol Agent", int((df["agent"] == "Protocol Agent").sum()))
+    m3.metric("Patient Agent", int((df["agent"] == "Patient Agent").sum()))
+    m4.metric("Warnings", int((df["event"] == "warning").sum()))
+
+    f1, f2 = st.columns(2)
+    agents = sorted(readable["Agent"].unique())
+    chosen_agents = f1.multiselect("Agent", agents, default=agents)
+    kinds = list(dict.fromkeys(readable["What happened"]))
+    chosen_kinds = f2.multiselect("What happened", kinds, default=kinds)
+    view = readable[readable["Agent"].isin(chosen_agents) & readable["What happened"].isin(chosen_kinds)]
+    st.caption(f"Showing {len(view)} of {len(readable)} entries, oldest first.")
     st.dataframe(view, hide_index=True, width="stretch")
 
+    with st.expander("Raw log (internal names)"):
+        st.dataframe(df, hide_index=True, width="stretch")
+    if st.button("🧹 Clear the log"):
+        log.entries.clear()
+        st.rerun()
 
 
 # --------------------------------------------------------------------------- #
@@ -666,7 +721,7 @@ def main() -> None:
 
     tab_overview, tab_elig, tab_criteria, tab_patients, tab_log, tab_arms, tab_raw = st.tabs(
         ["📋 Study overview", "📝 Eligibility criteria", "🧩 Extracted criteria", "🧑‍⚕️ Practice patients",
-         "🛰️ Agent activity", "💊 Arms & outcomes", "🗂️ Raw API response"]
+         "🛰️ Activity log", "💊 Arms & outcomes", "🗂️ Raw API response"]
     )
     with tab_overview:
         render_overview(study)

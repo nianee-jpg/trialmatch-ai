@@ -23,6 +23,7 @@ from pydantic import BaseModel
 
 from trialmatch.data_dictionary import (
     DATA_FIELDS,
+    field_label,
     REQUIRED_DATA_RULES,
     THRESHOLD_PARAMETER_RULES,
     ULN_PARAMETER_RULES,
@@ -135,9 +136,9 @@ def segment_criteria(full_text: str) -> List[Segment]:
                     criterion_id=f"{sub_id}.{j}", type=item["type"], parent_id=sub_id,
                     char_start=child["start"], char_end=child["end"], line_number=child["line"],
                     structure_note=(
-                        f"In the source this bullet has the same indentation as {top_id}.a/{top_id}.b. "
-                        f"It was nested under {sub_id} because {sub_id} ends with '...of the following:'. "
-                        "Confirm this grouping against the full protocol."
+                        f"In the published text this item sits at the same level as {top_id}.a and {top_id}.b. "
+                        f"The app placed it under {sub_id} because {sub_id} ends with '...any one of the following:'. "
+                        "Please confirm against the full protocol."
                     ),
                 ))
     return segments
@@ -219,23 +220,23 @@ def extract_thresholds(original_text: str) -> Tuple[List[Threshold], List[Flag]]
                 thresholds.append(Threshold(parameter=field, comparator=comparator, value=value, unit=None,
                                             relative_to="upper limit of normal", source_text=source_text))
             flags.append(Flag(code=FlagCode.RELATIVE_THRESHOLD, message=(
-                f"'{unescape_markdown(source_text)}' is relative to each lab's own upper limit of normal; "
-                "the patient record must include the reference range.")))
+                f"'{unescape_markdown(source_text)}' depends on each lab's own upper limit of normal, "
+                "so the patient's lab reference ranges are needed.")))
         else:
             parameter = _nearest_parameter(original_text, m.start(), m.end())
             thresholds.append(Threshold(parameter=parameter, comparator=comparator, value=value,
                                         unit=unit, source_text=source_text))
             if parameter is None:
                 flags.append(Flag(code=FlagCode.THRESHOLD_PARAMETER_UNKNOWN, message=(
-                    f"Could not tell which measurement '{unescape_markdown(source_text)}' applies to.")))
+                    f"The app found '{unescape_markdown(source_text)}' but could not tell what it measures.")))
             if unit is None and value is not None:
                 flags.append(Flag(code=FlagCode.UNIT_NOT_STATED, message=(
-                    f"No unit is stated for '{unescape_markdown(source_text)}'. Do not assume one.")))
+                    f"'{unescape_markdown(source_text)}' has no unit. The app will not assume one.")))
 
         if value is None:
             flags.append(Flag(code=FlagCode.MISSING_THRESHOLD, message=(
-                f"The source text '{unescape_markdown(source_text)}' has a comparator but no number. "
-                "The threshold is missing from the registry record and must not be guessed.")))
+                f"The protocol says '{unescape_markdown(source_text)}' but leaves out the number. "
+                "The app will not guess it; a person must find the intended value.")))
 
     for m in _OR_MORE.finditer(original_text):
         token = m.group("num").lower()
@@ -275,8 +276,8 @@ def extract_time_windows(original_text: str) -> Tuple[List[TimeWindow], List[Fla
                                   anchor=m.group("anchor"), source_text=m.group(0)))
         if m.group("anchor") is None:
             flags.append(Flag(code=FlagCode.TIME_ANCHOR_NOT_STATED, message=(
-                f"'{m.group(0)}' does not say which date it is measured from "
-                "(screening, randomization or first dose). A reviewer must confirm the reference date.")))
+                f"'{m.group(0)}' does not say which date to count from "
+                "(for example screening or first dose). A person must confirm it.")))
     return windows, flags
 
 
@@ -294,18 +295,18 @@ def detect_flags(original_text: str) -> List[Flag]:
     flags: List[Flag] = []
     if re.search(r"investigator's opinion", text, re.IGNORECASE):
         flags.append(Flag(code=FlagCode.INVESTIGATOR_JUDGEMENT,
-                          message="Depends on the investigator's opinion; cannot be decided from data alone."))
+                          message="Depends on the study doctor's opinion, so it cannot be decided from the record alone."))
     terms = sorted({m.group(1).lower() for m in _SUBJECTIVE.finditer(text)})
     if terms:
         flags.append(Flag(code=FlagCode.SUBJECTIVE_TERM,
-                          message="Contains terms without an objective definition here: " + ", ".join(terms) + "."))
+                          message="Uses words that are not defined here: " + ", ".join(terms) + ". A person must judge them."))
     if re.search(r"including but not limited to", text, re.IGNORECASE):
         flags.append(Flag(code=FlagCode.NON_EXHAUSTIVE_LIST,
-                          message="The list of examples is not exhaustive ('including but not limited to')."))
+                          message="Gives examples ('including but not limited to'), so things not listed may also count."))
     if re.search(r"half-lives", text, re.IGNORECASE):
         flags.append(Flag(code=FlagCode.EXTERNAL_INFO_NEEDED, message=(
-            "Window depends on each drug's half-life ('5 half-lives ... whichever is greater'), "
-            "which is not given in the protocol text.")))
+            "The time limit depends on each drug's half-life ('5 half-lives ... whichever is greater'), "
+            "which the protocol does not give.")))
     return flags
 
 
@@ -322,7 +323,7 @@ def map_required_data(original_text: str) -> Tuple[List[RequiredData], List[Flag
             if item not in found:
                 found.append(item)
     flags = [] if found else [Flag(code=FlagCode.REQUIRED_DATA_UNMAPPED, message=(
-        "No data-dictionary field matched this criterion; a reviewer must decide what evidence is needed."))]
+        "The app could not tell which patient information this needs. A person must decide."))]
     return found, flags
 
 
@@ -330,8 +331,8 @@ def map_required_data(original_text: str) -> Tuple[List[RequiredData], List[Flag
 # 6. Rule-based interpretation
 # --------------------------------------------------------------------------- #
 
-_CMP_WORDS = {Comparator.LT: "less than", Comparator.LE: "less than or equal to",
-              Comparator.GT: "greater than", Comparator.GE: "greater than or equal to"}
+_CMP_WORDS = {Comparator.LT: "below", Comparator.LE: "at or below",
+              Comparator.GT: "above", Comparator.GE: "at or above"}
 
 
 def _fmt(value: float) -> str:
@@ -345,17 +346,21 @@ def build_interpretation(
     windows: List[TimeWindow],
     child_ids: List[str],
 ) -> str:
-    """Plain statement of what must be checked, built ONLY from extracted pieces."""
+    """Plain statement of what must be checked, built ONLY from extracted pieces.
+
+    Example: "Excluded if: Absolute neutrophil count (ANC) is below 1,500 /mm^3.
+    A value of exactly 1,500 does not count."
+    """
     parts: List[str] = []
-    lead = "Inclusion requirement" if ctype == CriterionType.INCLUSION else "Exclusion is PRESENT if"
+    lead = "Required" if ctype == CriterionType.INCLUSION else "Excluded if"
 
     if child_ids:
-        parts.append(f"{lead}: any one of {', '.join(child_ids)} is satisfied.")
+        parts.append(f"{lead}: any one of {', '.join(child_ids)}.")
 
     # Group thresholds that share one comparison (e.g. AST, ALT, ALP >= 2 x ULN).
     groups: List[Tuple[Threshold, List[str]]] = []
     for t in thresholds:
-        name = t.parameter or "[unidentified measurement]"
+        name = field_label(t.parameter) if t.parameter else "[unclear measurement]"
         for first, names in groups:
             if (first.source_text, first.comparator, first.value) == (t.source_text, t.comparator, t.value):
                 names.append(name)
@@ -363,19 +368,22 @@ def build_interpretation(
         else:
             groups.append((t, [name]))
     for t, names in groups:
-        value = _fmt(t.value) if t.value is not None else "[NUMBER MISSING IN SOURCE]"
-        target = f"{value} x {t.relative_to}" if t.relative_to else f"{value} {t.unit or '[unit not stated]'}"
-        subject = names[0] if len(names) == 1 else "any of " + ", ".join(names)
-        strict = (f" Strict inequality: a value exactly equal to {value} does not satisfy it."
+        value = _fmt(t.value) if t.value is not None else "[number missing from the protocol]"
+        if t.relative_to:
+            target = f"{value} × the {t.relative_to}"
+        else:
+            target = f"{value} {t.unit}" if t.unit else f"{value} (no unit given in the protocol)"
+        subject = names[0] if len(names) == 1 else "any of " + ", ".join(names[:-1]) + " or " + names[-1]
+        strict = (f" A value of exactly {value} does not count."
                   if t.comparator.is_strict and t.value is not None else "")
         parts.append(f"{lead}: {subject} is {_CMP_WORDS[t.comparator]} {target}.{strict}")
 
     if not thresholds and not child_ids:
-        parts.append(f"{lead} (text criterion, no numeric threshold): {display_text}")
+        parts.append(f"{lead}: {display_text}")
     for w in windows:
         # Quote the source wording rather than re-stating the amount ("the past year", not "1 years").
-        anchor = w.anchor or "[reference date not stated]"
-        parts.append(f"Time window: '{unescape_markdown(w.source_text)}', measured from {anchor}.")
+        when = f"counted from {w.anchor}" if w.anchor else "the protocol does not say counted from which date"
+        parts.append(f"Time limit: '{unescape_markdown(w.source_text)}' ({when}).")
     return " ".join(parts)
 
 

@@ -1,0 +1,130 @@
+"""Plain-language wording for the dashboard.
+
+Internal code names (flag codes, tool names, field names) stay in the data so
+results remain traceable; this module translates them for people.
+"""
+
+from __future__ import annotations
+
+import json
+import re
+from typing import Dict, Tuple
+
+from trialmatch.data_dictionary import DATA_FIELDS, field_label
+
+# flag code -> (short title, what it means for the reviewer)
+FLAG_INFO: Dict[str, Tuple[str, str]] = {
+    "MISSING_THRESHOLD": ("Number missing from the protocol",
+                          "The protocol compares against a value but never states it."),
+    "UNIT_NOT_STATED": ("No unit given", "The protocol gives a number without a unit."),
+    "RELATIVE_THRESHOLD": ("Depends on the lab's normal range",
+                           "The limit is a multiple of each lab's own upper limit of normal."),
+    "EXTERNAL_INFO_NEEDED": ("Needs information not in the protocol",
+                             "For example, a drug's half-life."),
+    "TIME_ANCHOR_NOT_STATED": ("Start date of time limit not stated",
+                               "The protocol says 'within N months' but not counted from which date."),
+    "INVESTIGATOR_JUDGEMENT": ("Study doctor's judgement", "Depends on the investigator's opinion."),
+    "SUBJECTIVE_TERM": ("Wording open to interpretation",
+                        "Uses words such as 'severe' or 'significant' without a definition."),
+    "NON_EXHAUSTIVE_LIST": ("Examples, not a complete list",
+                            "Says 'including but not limited to', so other items may also count."),
+    "STRUCTURE_INFERRED": ("Grouping worked out by the app",
+                           "The published layout was ambiguous; the app grouped these items by a rule."),
+    "THRESHOLD_PARAMETER_UNKNOWN": ("Unclear what is being measured",
+                                    "A number was found but not what it applies to."),
+    "REQUIRED_DATA_UNMAPPED": ("Unclear what information is needed",
+                               "The app could not match this criterion to patient information."),
+    "AMBIGUITY_NOTED_BY_CLAUDE": ("Point raised by Claude", "Claude noted something a reviewer should resolve."),
+}
+
+
+def flag_title(code: str) -> str:
+    return FLAG_INFO.get(code, (code, ""))[0]
+
+
+# tool name -> plain description
+TOOL_LABELS: Dict[str, str] = {
+    "segment_criteria": "Split the text into criteria",
+    "extract_thresholds": "Find numbers to check",
+    "extract_time_windows": "Find time limits",
+    "detect_flags": "Find wording that needs a person",
+    "map_required_data": "Work out what information is needed",
+    "verify_extraction": "Accuracy check",
+    "list_criteria": "Read the list of criteria",
+    "get_criterion_details": "Read one criterion in detail",
+    "submit_interpretation": "Suggest plain-language wording",
+    "list_patients": "List practice patients",
+    "get_patient_overview": "Get patient summary",
+    "list_recorded_fields": "List what the record contains",
+    "get_field": "Look up a value",
+    "get_medication_history": "Search medication history",
+}
+
+EVENT_LABELS: Dict[str, str] = {
+    "tool_call": "Step started",
+    "tool_result": "Step result",
+    "info": "Note",
+    "warning": "Warning",
+    "verification": "Accuracy check",
+    "llm_request": "Sent to Claude",
+    "llm_response": "Claude replied",
+}
+
+STATUS_WORDS = {
+    "FOUND": "found",
+    "NOT_RECORDED": "not in the record",
+    "CONFLICTING": "sources disagree",
+    "MULTIPLE_DATES": "several dates",
+    "UNKNOWN_FIELD": "unknown item",
+    "UNKNOWN_PATIENT": "unknown patient",
+    "ERROR": "error",
+}
+
+_FIELD_PATTERN = re.compile("|".join(re.escape(f) for f in sorted(DATA_FIELDS, key=len, reverse=True)))
+
+
+def plain_fields(text: str) -> str:
+    """Replace every internal field name in `text` with its readable label."""
+    return _FIELD_PATTERN.sub(lambda m: field_label(m.group(0)), text)
+
+
+def plain_log_detail(detail: str) -> str:
+    """Make an activity-log detail line readable."""
+    try:
+        data = json.loads(detail)
+    except ValueError:
+        data = None
+    if isinstance(data, dict):
+        parts = []
+        for key, value in data.items():
+            if key == "field":
+                parts.append(field_label(str(value)))
+            elif key == "drug":
+                parts.append(f"medicine: {value or 'all'}")
+            elif key == "text":
+                parts.append(f"“{value}”")
+            else:
+                parts.append(str(value))
+        return " · ".join(parts) if parts else "(no input)"
+    text = plain_fields(detail)
+    for code, word in STATUS_WORDS.items():
+        text = re.sub(rf"\b{code}\b", word, text)
+    for code, (title, _) in FLAG_INFO.items():
+        text = re.sub(rf"\b{code}\b", title.lower(), text)
+    for old, new in _LOG_PHRASES:
+        text = text.replace(old, new)
+    text = re.sub(r"(\d)\.0\b", r"\1", text)  # 1500.0 -> 1500
+    text = " | ".join(part for part in (p.strip() for p in text.split("|")) if part != "[]") or "nothing found"
+    return text
+
+
+_LOG_PHRASES = [
+    ("observation(s)", "entries"),
+    ("thresholds: ", "numbers found: "),
+    ("windows: ", "time limits: "),
+    ("flags: ", "needs a person: "),
+    ("fields: ", "information needed: "),
+    ("no anchor", "start date not stated"),
+    (" < ", " below "), (" <= ", " at or below "), (" > ", " above "), (" >= ", " at or above "),
+    ("MISSING", "[missing]"),
+]

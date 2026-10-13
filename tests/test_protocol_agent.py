@@ -50,11 +50,13 @@ def test_anemia_threshold_missing_in_source(extraction):
     c = extraction.by_id("EXC-04")
     assert c.thresholds[0].value is None
     assert c.has_flag(FlagCode.MISSING_THRESHOLD)
-    assert "NUMBER MISSING IN SOURCE" in c.normalized_interpretation
+    assert "[number missing from the protocol]" in c.normalized_interpretation
 
 
 def test_interpretations_state_strictness(extraction):
-    assert "exactly equal to 1,500 does not satisfy" in extraction.by_id("EXC-02").normalized_interpretation
+    text = extraction.by_id("EXC-02").normalized_interpretation
+    assert "Absolute neutrophil count (ANC) is below 1,500 /mm^3" in text
+    assert "exactly 1,500 does not count" in text
 
 
 def test_activity_log_records_tool_calls(calibrate_eligibility_text):
@@ -63,7 +65,7 @@ def test_activity_log_records_tool_calls(calibrate_eligibility_text):
     tools_called = {e.tool for e in log.entries if e.event == "tool_call"}
     assert {"segment_criteria", "extract_thresholds", "extract_time_windows", "detect_flags",
             "map_required_data", "verify_extraction"} <= tools_called
-    assert any(e.event == "verification" and e.detail.startswith("PASS") for e in log.entries)
+    assert any(e.event == "verification" and e.detail.startswith("Passed") for e in log.entries)
 
 
 # --- Verification catches problems ---------------------------------------- #

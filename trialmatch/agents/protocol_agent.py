@@ -71,10 +71,10 @@ class ProtocolAgent:
                             {"criteria": f"{len(criteria)} criteria"}, criteria, eligibility_text)
         if issues:
             for issue in issues:
-                self.log.add(AGENT_NAME, "verification", f"FAIL [{issue.check}] {issue.criterion_id or ''} {issue.message}")
+                self.log.add(AGENT_NAME, "verification", f"Problem ({issue.check}) {issue.criterion_id or ''}: {issue.message}")
         else:
             self.log.add(AGENT_NAME, "verification",
-                         "PASS: exact text, full coverage, no invented numbers, flags consistent, known data fields.")
+                         "Passed: every criterion matches the published text, nothing was skipped, no numbers were added.")
 
         return ProtocolExtraction(nct_id=nct_id, mode=mode, model=model, criteria=criteria,
                                   verification_issues=issues)
@@ -96,7 +96,7 @@ class ProtocolAgent:
     def _rule_based_pass(self, nct_id: str, text: str, raw_file: Optional[str],
                          raw_sha256: Optional[str]) -> List[Criterion]:
         segments = self._call("segment_criteria", tools.segment_criteria,
-                              {"eligibility_text": f"{len(text)} chars"}, text)
+                              {"eligibility_text": f"{len(text):,} characters"}, text)
         child_ids: Dict[str, List[str]] = {}
         for seg in segments:
             if seg.parent_id:

@@ -33,6 +33,7 @@ trialmatch-ai/
 │   ├── data_dictionary.py          # patient data fields + rules mapping protocol wording to them
 │   ├── text_utils.py               # Markdown un-escaping, number parsing
 │   ├── activity_log.py             # visible log of agent tool calls and checks
+│   ├── ui_text.py                  # plain-language wording for codes shown in the dashboard
 │   ├── patient_models.py           # Pydantic models for SYNTHETIC records (+ identifier checks)
 │   └── agents/
 │       ├── protocol_tools.py       # deterministic tools: segment, thresholds, windows, flags, verify
@@ -59,7 +60,7 @@ windows, the patient data it needs, review flags, and a source reference (JSON p
 offsets, raw file and SHA-256).
 
 **It runs fully offline. No API key is needed.** The steps are deterministic tools, each one logged
-in the **Agent activity** tab:
+in the **Activity log** tab:
 
 1. `segment_criteria`: split the text at numbered items and bullets, keeping exact character offsets.
 2. `extract_thresholds`: find comparisons such as `\<1500/mm\^3` (strict `<`) or `\>=2 times the upper limit of normal`.
@@ -106,7 +107,7 @@ The **Patient Agent** is the only component that reads patient data. Its tools (
 `get_medication_history`, `list_recorded_fields`, `get_patient_overview`, `list_patients`) return
 each observation with an evidence ID such as `SYN-003/labs.upcr/0`, report `NOT_RECORDED` instead of
 guessing, and report `CONFLICTING` when same-day values disagree. Every call appears in the
-**Agent activity** tab. The tools also have JSON schemas, so the Eligibility Agent (Milestone 4)
+**Activity log** tab. The tools also have JSON schemas, so the Eligibility Agent (Milestone 4)
 can call them.
 
 ## Install and run on macOS
@@ -142,7 +143,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `82 passed`.
+**4. Run the tests.** You should see `85 passed`.
 
 ```bash
 python -m pytest
@@ -166,11 +167,12 @@ Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `str
 - **Eligibility criteria** tab: sex/age limits and the eligibility text **exactly as published**,
   shown either as Inclusion/Exclusion sections or as the complete original text, with a download button.
 - **Arms & outcomes** tab: arms, interventions, primary and secondary outcomes.
-- **Extracted criteria** tab: click **Run Protocol Agent** to see every criterion, its thresholds,
-  windows, required data and review flags, with a JSON download.
+- **Extracted criteria** tab: every criterion with *what to check*, the patient information it needs,
+  and why a person may need to review it. Filter to items that need review, open any criterion for
+  details, and download everything as JSON.
 - **Practice patients** tab, in four steps: choose a patient, check whether the record has
   everything the criteria ask about, look up any value (with its source), and view the full record.
-- **Agent activity** tab: every tool call the agent made, and the verification result.
+- **Activity log** tab: every step each agent took, in plain language (the raw log is one click away).
 - **Raw API response** tab: the full JSON plus a download of the exact saved bytes.
 - Sidebar: **Fetch latest from ClinicalTrials.gov** and traceability details (URL, UTC timestamp,
   SHA-256 checksum, raw file path).
