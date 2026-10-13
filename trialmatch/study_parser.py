@@ -12,7 +12,7 @@ its "Inclusion" and "Exclusion" sections, verbatim, for display.
 from __future__ import annotations
 
 import re
-from typing import Any
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
 
@@ -22,22 +22,22 @@ from pydantic import BaseModel, Field
 
 
 class Intervention(BaseModel):
-    type: str | None = None
-    name: str | None = None
-    description: str | None = None
+    type: Optional[str] = None
+    name: Optional[str] = None
+    description: Optional[str] = None
 
 
 class ArmGroup(BaseModel):
-    label: str | None = None
-    type: str | None = None
-    description: str | None = None
+    label: Optional[str] = None
+    type: Optional[str] = None
+    description: Optional[str] = None
     intervention_names: list[str] = Field(default_factory=list)
 
 
 class Outcome(BaseModel):
-    measure: str | None = None
-    time_frame: str | None = None
-    description: str | None = None
+    measure: Optional[str] = None
+    time_frame: Optional[str] = None
+    description: Optional[str] = None
 
 
 class EligibilitySections(BaseModel):
@@ -47,22 +47,22 @@ class EligibilitySections(BaseModel):
     found, the sections are left as None and only `full_text` should be used.
     """
 
-    inclusion_text: str | None = None
-    exclusion_text: str | None = None
+    inclusion_text: Optional[str] = None
+    exclusion_text: Optional[str] = None
     split_succeeded: bool = False
 
 
 class Eligibility(BaseModel):
-    full_text: str | None = Field(
+    full_text: Optional[str] = Field(
         default=None,
         description="Complete, unmodified text from "
         "protocolSection.eligibilityModule.eligibilityCriteria",
     )
     sections: EligibilitySections = Field(default_factory=EligibilitySections)
-    sex: str | None = None
-    minimum_age: str | None = None
-    maximum_age: str | None = None
-    healthy_volunteers: bool | None = None
+    sex: Optional[str] = None
+    minimum_age: Optional[str] = None
+    maximum_age: Optional[str] = None
+    healthy_volunteers: Optional[bool] = None
     std_ages: list[str] = Field(default_factory=list)
     source_path: str = "protocolSection.eligibilityModule"
 
@@ -71,34 +71,34 @@ class StudyMetadata(BaseModel):
     """Human-readable summary of one study record."""
 
     nct_id: str
-    brief_title: str | None = None
-    official_title: str | None = None
-    acronym: str | None = None
-    overall_status: str | None = None
-    start_date: str | None = None
-    primary_completion_date: str | None = None
-    completion_date: str | None = None
-    last_update_posted: str | None = None
-    lead_sponsor: str | None = None
+    brief_title: Optional[str] = None
+    official_title: Optional[str] = None
+    acronym: Optional[str] = None
+    overall_status: Optional[str] = None
+    start_date: Optional[str] = None
+    primary_completion_date: Optional[str] = None
+    completion_date: Optional[str] = None
+    last_update_posted: Optional[str] = None
+    lead_sponsor: Optional[str] = None
     collaborators: list[str] = Field(default_factory=list)
-    study_type: str | None = None
+    study_type: Optional[str] = None
     phases: list[str] = Field(default_factory=list)
-    allocation: str | None = None
-    intervention_model: str | None = None
-    primary_purpose: str | None = None
-    masking: str | None = None
-    enrollment_count: int | None = None
-    enrollment_type: str | None = None
+    allocation: Optional[str] = None
+    intervention_model: Optional[str] = None
+    primary_purpose: Optional[str] = None
+    masking: Optional[str] = None
+    enrollment_count: Optional[int] = None
+    enrollment_type: Optional[str] = None
     conditions: list[str] = Field(default_factory=list)
     keywords: list[str] = Field(default_factory=list)
-    brief_summary: str | None = None
-    detailed_description: str | None = None
+    brief_summary: Optional[str] = None
+    detailed_description: Optional[str] = None
     arm_groups: list[ArmGroup] = Field(default_factory=list)
     interventions: list[Intervention] = Field(default_factory=list)
     primary_outcomes: list[Outcome] = Field(default_factory=list)
     secondary_outcomes: list[Outcome] = Field(default_factory=list)
     eligibility: Eligibility = Field(default_factory=Eligibility)
-    has_results: bool | None = None
+    has_results: Optional[bool] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -192,7 +192,7 @@ _INCLUSION_HEADING = re.compile(r"^[ \t]*inclusion criteria\s*:?", re.IGNORECASE
 _EXCLUSION_HEADING = re.compile(r"^[ \t]*exclusion criteria\s*:?", re.IGNORECASE | re.MULTILINE)
 
 
-def split_eligibility_sections(full_text: str | None) -> EligibilitySections:
+def split_eligibility_sections(full_text: Optional[str]) -> EligibilitySections:
     """Split eligibility text at its 'Inclusion Criteria' / 'Exclusion Criteria' headings.
 
     The returned sections are exact slices of `full_text` (only leading and

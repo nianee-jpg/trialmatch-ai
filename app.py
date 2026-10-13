@@ -13,6 +13,8 @@ and never a final clinical eligibility determination.
 
 from __future__ import annotations
 
+from typing import Optional
+
 import pandas as pd
 import streamlit as st
 
@@ -72,7 +74,7 @@ def render_disclaimer() -> None:
     )
 
 
-def render_sidebar(retrieval: StudyRetrieval | None) -> None:
+def render_sidebar(retrieval: Optional[StudyRetrieval]) -> None:
     with st.sidebar:
         st.header("Data source")
         st.caption(f"Study: `{config.STUDY_NCT_ID}`")
@@ -262,8 +264,8 @@ def main() -> None:
         with st.spinner("Loading study from ClinicalTrials.gov…"):
             load_study()
 
-    retrieval: StudyRetrieval | None = st.session_state.get("retrieval")
-    study: StudyMetadata | None = st.session_state.get("study")
+    retrieval: Optional[StudyRetrieval] = st.session_state.get("retrieval")
+    study: Optional[StudyMetadata] = st.session_state.get("study")
 
     render_sidebar(retrieval)
 

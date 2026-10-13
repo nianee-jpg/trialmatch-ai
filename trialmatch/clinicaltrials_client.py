@@ -18,7 +18,7 @@ import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Optional
 
 import requests
 
@@ -76,7 +76,7 @@ def fetch_study(
     raw_dir: Path = config.RAW_DATA_DIR,
     base_url: str = config.CTGOV_BASE_URL,
     timeout: float = config.CTGOV_TIMEOUT_SECONDS,
-    session: requests.Session | None = None,
+    session: Optional[requests.Session] = None,
 ) -> StudyRetrieval:
     """Download a study from ClinicalTrials.gov and save the raw response.
 
@@ -145,7 +145,7 @@ def load_latest_cached_study(
     nct_id: str = config.STUDY_NCT_ID,
     *,
     raw_dir: Path = config.RAW_DATA_DIR,
-) -> StudyRetrieval | None:
+) -> Optional[StudyRetrieval]:
     """Load the most recently saved raw response for a study, if one exists."""
     nct_id = validate_nct_id(nct_id)
     # File names embed a sortable UTC timestamp, so the last one is the newest.

@@ -41,37 +41,53 @@ trialmatch-ai/
 
 ## Install and run on macOS
 
-You need **Python 3.10 or newer**. Check with `python3 --version`. If it is missing or older,
-install it from <https://www.python.org/downloads/macos/> or with Homebrew (`brew install python`).
+Works with **Python 3.9 or newer**, including the Python 3.9 that ships with macOS.
+Check with `python3 --version`.
 
-Open **Terminal** and run:
+Run these commands in **Terminal**, one block at a time. The blocks have no `#` comments
+because macOS's default shell (zsh) does not treat `#` as a comment when you paste.
+
+**1. Get the code.** First run `cd ~` so you don't clone it inside another copy.
 
 ```bash
-# 1. Get the code and go into the project folder
+cd ~
 git clone https://github.com/nianee-jpg/trialmatch-ai.git
 cd trialmatch-ai
-git checkout claude/trialmatch-ai-prescreening-i28zkd   # until this branch is merged
+git checkout claude/trialmatch-ai-prescreening-i28zkd
+```
 
-# 2. Create and activate a virtual environment (an isolated Python install for this project)
+**2. Create and activate a virtual environment.** This is an isolated Python install for the
+project. Your prompt will start with `(.venv)`.
+
+```bash
 python3 -m venv .venv
-source .venv/bin/activate          # your prompt now starts with (.venv)
+source .venv/bin/activate
+```
 
-# 3. Install dependencies
+**3. Install the dependencies and create your settings file.** No API key is needed yet.
+
+```bash
 python -m pip install --upgrade pip
 pip install -r requirements.txt
-
-# 4. Create your settings file (no key is needed for Milestone 1)
 cp .env.example .env
+```
 
-# 5. Run the tests
-pytest
+**4. Run the tests.** You should see `18 passed`.
 
-# 6. Start the app
+```bash
+python -m pytest
+```
+
+**5. Start the app.**
+
+```bash
 streamlit run app.py
 ```
 
+The first time, Streamlit asks for an email address. Leave it blank and press **Return**.
+
 Streamlit opens <http://localhost:8501> in your browser. To stop it, press **Control + C** in Terminal.
-Next time, you only need `cd trialmatch-ai`, `source .venv/bin/activate`, and `streamlit run app.py`.
+Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `streamlit run app.py`.
 
 ### What you should see
 
@@ -94,6 +110,8 @@ the newest saved copy, so the app also works offline. Click the sidebar button t
   sidebar button again.
 - **SSL certificate errors** with python.org Python: run
   `/Applications/Python\ 3.*/Install\ Certificates.command` once.
+- **`file or directory not found: #`** or **`cp: yet: Not a directory`**: a `#` comment was pasted
+  into zsh. Re-run the command without the comment.
 - **Port 8501 already in use**: `streamlit run app.py --server.port 8502`.
 
 ## Data and safety principles

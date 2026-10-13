@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Optional
 
 from dotenv import load_dotenv
 
@@ -29,5 +30,5 @@ RAW_DATA_DIR: Path = PROJECT_ROOT / "data" / "raw"
 PATIENT_DATA_DIR: Path = PROJECT_ROOT / "data" / "patients"
 
 # Used from Milestone 2 onward. Not required for Milestone 1.
-ANTHROPIC_API_KEY: str | None = os.getenv("ANTHROPIC_API_KEY") or None
+ANTHROPIC_API_KEY: Optional[str] = os.getenv("ANTHROPIC_API_KEY") or None
 ANTHROPIC_MODEL: str = os.getenv("ANTHROPIC_MODEL", "claude-sonnet-5-5")
