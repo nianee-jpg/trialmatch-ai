@@ -1,0 +1,51 @@
+{
+  "_comment": "MOCK FIXTURE FOR UNIT TESTS ONLY. Shape follows ClinicalTrials.gov API v2; text values are placeholders and are NOT the real NCT02260934 protocol. The app always uses the live API response.",
+  "protocolSection": {
+    "identificationModule": {
+      "nctId": "NCT02260934",
+      "briefTitle": "MOCK brief title",
+      "officialTitle": "MOCK official title",
+      "acronym": "MOCK"
+    },
+    "statusModule": {
+      "overallStatus": "COMPLETED",
+      "startDateStruct": {"date": "2000-01"},
+      "primaryCompletionDateStruct": {"date": "2001-01"},
+      "completionDateStruct": {"date": "2001-06"},
+      "lastUpdatePostDateStruct": {"date": "2002-01-01"}
+    },
+    "sponsorCollaboratorsModule": {
+      "leadSponsor": {"name": "MOCK Sponsor"},
+      "collaborators": [{"name": "MOCK Collaborator A"}, {"name": "MOCK Collaborator B"}]
+    },
+    "descriptionModule": {"briefSummary": "MOCK summary."},
+    "conditionsModule": {"conditions": ["MOCK Condition"], "keywords": ["mock"]},
+    "designModule": {
+      "studyType": "INTERVENTIONAL",
+      "phases": ["PHASE2"],
+      "designInfo": {
+        "allocation": "RANDOMIZED",
+        "interventionModel": "PARALLEL",
+        "primaryPurpose": "TREATMENT",
+        "maskingInfo": {"masking": "NONE"}
+      },
+      "enrollmentInfo": {"count": 10, "type": "ACTUAL"}
+    },
+    "armsInterventionsModule": {
+      "armGroups": [{"label": "MOCK Arm", "type": "EXPERIMENTAL", "description": "MOCK arm description", "interventionNames": ["Drug: MOCK"]}],
+      "interventions": [{"type": "DRUG", "name": "MOCK", "description": "MOCK intervention"}]
+    },
+    "outcomesModule": {
+      "primaryOutcomes": [{"measure": "MOCK primary outcome", "timeFrame": "Week 1"}]
+    },
+    "eligibilityModule": {
+      "eligibilityCriteria": "Inclusion Criteria:\n\n* MOCK inclusion item one, value > 1.0\n* MOCK inclusion item two\n\nExclusion Criteria:\n\n* MOCK exclusion item one, value < 50\n* MOCK exclusion item two",
+      "healthyVolunteers": false,
+      "sex": "ALL",
+      "minimumAge": "18 Years",
+      "maximumAge": "75 Years",
+      "stdAges": ["ADULT", "OLDER_ADULT"]
+    }
+  },
+  "hasResults": true
+}
