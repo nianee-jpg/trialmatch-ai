@@ -14,6 +14,7 @@ and never a final clinical eligibility determination.
 from __future__ import annotations
 
 import datetime as dt
+import json
 from typing import Optional
 
 import pandas as pd
@@ -28,14 +29,19 @@ from trialmatch.clinicaltrials_client import (
 )
 from trialmatch.activity_log import ActivityLog
 from trialmatch.agents.eligibility_agent import EligibilityAgent
+from trialmatch.agents.verification_agent import VerificationAgent
 from trialmatch.agents.patient_agent import PatientAgent, PatientDataError, load_patients
 from trialmatch.agents.protocol_agent import ProtocolAgent, make_claude_client
 from trialmatch.data_dictionary import DATA_FIELDS, field_group, field_label
 from trialmatch.text_utils import unescape_markdown
 from trialmatch.eligibility_models import CriterionEvaluation, ScreeningResult
+from trialmatch.report import build_html_report
+from trialmatch.verification_models import CriterionVerification, Severity, VerificationReport
 from trialmatch.ui_text import (
+    CHECK_LABELS,
     EVENT_LABELS,
     METHOD_LABELS,
+    OUTCOME_LABELS,
     RESULT_LABELS,
     RESULT_MEANINGS,
     TOOL_LABELS,
@@ -120,8 +126,6 @@ def render_sidebar(retrieval: Optional[StudyRetrieval]) -> None:
             st.markdown("⚙️ **Offline (rule-based)**. No API key needed. Add `ANTHROPIC_API_KEY` to `.env` "
                         "to enable optional Claude interpretations.")
 
-        st.subheader("Coming next")
-        st.caption("Verification Agent · Screening report")
 
 
 def render_overview(study: StudyMetadata) -> None:
@@ -668,11 +672,28 @@ def render_patients(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
 
 
 def run_screening(pid: str, patients: dict, extraction: ProtocolExtraction, study: StudyMetadata) -> ScreeningResult:
+    """Eligibility Agent, then an independent Verification Agent pass."""
     log = get_log()
-    agent = EligibilityAgent(log, PatientAgent(log, patients), client=make_claude_client())
-    result = agent.screen(pid, extraction, study)
+    patient_agent = PatientAgent(log, patients)
+    result = EligibilityAgent(log, patient_agent, client=make_claude_client()).screen(pid, extraction, study)
+    verification = VerificationAgent(log, patient_agent).verify(result, extraction, study)
     st.session_state.setdefault("screenings", {})[pid] = result
+    st.session_state.setdefault("verifications", {})[pid] = verification
     return result
+
+
+def render_verification_detail(v: CriterionVerification) -> None:
+    st.markdown(f"**Verification: {OUTCOME_LABELS[v.outcome.value]}**")
+    passed = sorted({CHECK_LABELS.get(c, c) for c in (
+        "criterion_text", "evidence_matches", "numbers_supported", "dates_supported", "decision_language")}
+        - {CHECK_LABELS.get(c.check, c.check) for c in v.problems})
+    for c in v.problems:
+        (st.error if c.severity == Severity.ERROR else st.warning)(
+            f"**{CHECK_LABELS.get(c.check, c.check)}**: {c.message}")
+    notes = [c for c in v.checks if c.severity == Severity.NOTE]
+    for c in notes:
+        st.caption(f"ℹ️ {CHECK_LABELS.get(c.check, c.check)}: {c.message}")
+    st.caption("Checks passed: " + ", ".join(passed) + ".")
 
 
 def _evidence_table(evaluation: CriterionEvaluation) -> pd.DataFrame:
@@ -687,7 +708,7 @@ def _evidence_table(evaluation: CriterionEvaluation) -> pd.DataFrame:
     } for e in evaluation.evidence])
 
 
-def render_evaluation_detail(e: CriterionEvaluation) -> None:
+def render_evaluation_detail(e: CriterionEvaluation, v: Optional[CriterionVerification] = None) -> None:
     kind = "Inclusion" if e.type == "INCLUSION" else "Exclusion"
     st.markdown(f"#### {e.criterion_id} · {kind}" + (f" (part of {e.parent_id})" if e.parent_id else ""))
     st.text(e.criterion_text)
@@ -715,6 +736,8 @@ def render_evaluation_detail(e: CriterionEvaluation) -> None:
     if e.ai_suggestion:
         st.info(f"**Claude's advisory suggestion:** {e.ai_suggestion.suggested_status}. {e.ai_suggestion.rationale} "
                 f"(cites {', '.join(e.ai_suggestion.evidence_ids)}). The status stays NEEDS REVIEW.")
+    if v is not None:
+        render_verification_detail(v)
 
 
 def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
@@ -744,8 +767,10 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
     st.caption(f"**What this case tests:** {patients[pid].scenario}")
 
     result: Optional[ScreeningResult] = st.session_state.get("screenings", {}).get(pid)
-    if result is None:
-        st.info("Click **Run pre-screening** to check this patient against every criterion.")
+    verification: Optional[VerificationReport] = st.session_state.get("verifications", {}).get(pid)
+    if result is None or verification is None:
+        st.info("Click **Run pre-screening** to check this patient against every criterion. "
+                "The results are then checked independently by the Verification Agent.")
         return
 
     # Summary -----------------------------------------------------------------
@@ -766,6 +791,16 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
         for col, s in zip(cols, ["ABSENT", "PRESENT", "UNKNOWN", "NEEDS_HUMAN_REVIEW"]):
             col.metric(RESULT_LABELS[s], counts["EXCLUSION"].get(s, 0))
     st.caption("Counts are for main criteria; parts such as INC-03.a are listed in the table below.")
+    vc = verification.counts()
+    if verification.passed and not vc["VERIFIED_WITH_WARNINGS"]:
+        st.success(f"**Verification passed.** All {len(verification.results)} results were re-checked against the "
+                   "protocol text and the record: evidence matches, numbers and dates are supported, no protocol "
+                   "gap or conflict was decided, and comparisons give the same answer when redone.")
+    elif verification.passed:
+        st.warning(f"**Verification passed with {vc['VERIFIED_WITH_WARNINGS']} warning(s).** See the Verified column.")
+    else:
+        st.error(f"**Verification failed for {vc['FAILED']} result(s).** Do not rely on those results; see the "
+                 "Verified column and each result's details.")
     with st.expander("What do these results mean?"):
         for s, meaning in RESULT_MEANINGS.items():
             st.markdown(f"- **{RESULT_LABELS[s]}**: {meaning}")
@@ -813,6 +848,7 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
         "Criterion": e.criterion_text,
         "Result": RESULT_LABELS[e.status],
         "How decided": METHOD_LABELS.get(e.method.value, e.method.value),
+        "Verified": OUTCOME_LABELS[verification.by_id(e.criterion_id).outcome.value],
         "Why": e.reason,
     } for e in shown])
     st.caption(f"Showing {len(shown)} of {len(result.evaluations)}.")
@@ -821,7 +857,7 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
         chosen = st.selectbox("Open a result to see its evidence", [e.criterion_id for e in shown],
                               format_func=lambda i: f"{i} · {RESULT_LABELS[result.by_id(i).status]} · "
                                                     f"{result.by_id(i).criterion_text[:70]}")
-        render_evaluation_detail(result.by_id(chosen))
+        render_evaluation_detail(result.by_id(chosen), verification.by_id(chosen))
 
     # Downloads -----------------------------------------------------------------
     st.markdown("### Download")
@@ -830,12 +866,24 @@ def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None
         "type": e.type, "status": e.status, "method": e.method.value, "reason": e.reason,
         "evidence_ids": "; ".join(x.evidence_id for x in e.evidence),
         "missing_information": "; ".join(e.missing_information), "assumptions": " | ".join(e.assumptions),
+        "verification": verification.by_id(e.criterion_id).outcome.value,
     } for e in result.evaluations]).to_csv(index=False)
-    d1, d2 = st.columns(2)
-    d1.download_button("⬇️ Results table (.csv)", data=csv, file_name=f"{result.patient_id}_SYNTHETIC_prescreen.csv",
+    report = build_html_report(
+        study=study, source_url=retrieval.source_url, retrieved_at=retrieval.retrieved_at,
+        raw_file=str(retrieval.raw_path.relative_to(config.PROJECT_ROOT)), raw_sha256=retrieval.sha256,
+        extraction=extraction, record=patients[pid], screening=result, verification=verification, log=get_log(),
+    )
+    bundle = json.dumps({"screening": result.model_dump(mode="json"),
+                         "verification": verification.model_dump(mode="json")}, indent=2)
+    d1, d2, d3 = st.columns(3)
+    d1.download_button("📄 Screening report (.html)", data=report, type="primary",
+                       file_name=f"{result.patient_id}_SYNTHETIC_prescreening_report.html", mime="text/html",
+                       help="Open in a browser; use File → Print to save as PDF.")
+    d2.download_button("⬇️ Results table (.csv)", data=csv, file_name=f"{result.patient_id}_SYNTHETIC_prescreen.csv",
                        mime="text/csv")
-    d2.download_button("⬇️ Full results with evidence (.json)", data=result.model_dump_json(indent=2),
+    d3.download_button("⬇️ Results + verification (.json)", data=bundle,
                        file_name=f"{result.patient_id}_SYNTHETIC_prescreen.json", mime="application/json")
+    st.caption("The report opens in any web browser. To make a PDF, open it and choose File → Print → Save as PDF.")
     st.caption(f"Screened {result.screened_at_utc} · {result.mode} · {result.disclaimer}")
 
 
@@ -860,7 +908,7 @@ def render_activity_log() -> None:
     m2.metric("Protocol Agent", int((df["agent"] == "Protocol Agent").sum()))
     m3.metric("Patient Agent", int((df["agent"] == "Patient Agent").sum()))
     m4.metric("Eligibility Agent", int((df["agent"] == "Eligibility Agent").sum()))
-    m5.metric("Warnings", int((df["event"] == "warning").sum()))
+    m5.metric("Verification Agent", int((df["agent"] == "Verification Agent").sum()))
 
     f1, f2 = st.columns(2)
     agents = sorted(readable["Agent"].unique())

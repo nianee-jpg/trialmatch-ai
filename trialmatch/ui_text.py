@@ -159,3 +159,32 @@ METHOD_LABELS: Dict[str, str] = {
 }
 
 TOOL_LABELS["submit_suggestion"] = "Suggest a reading (advisory only)"
+
+
+# Verification ---------------------------------------------------------------
+
+OUTCOME_LABELS: Dict[str, str] = {
+    "VERIFIED": "✅ Verified",
+    "VERIFIED_WITH_WARNINGS": "⚠️ Verified, with warnings",
+    "FAILED": "❌ Failed verification",
+}
+
+CHECK_LABELS: Dict[str, str] = {
+    "coverage": "Every criterion checked once",
+    "protocol_extraction": "Criteria extraction passed its accuracy check",
+    "synthetic": "Record is labelled SYNTHETIC",
+    "criterion_text": "Criterion matches the protocol text",
+    "evidence_matches": "Evidence matches the record",
+    "evidence_present": "Result is backed by evidence",
+    "missing_threshold": "Protocol gaps were not decided",
+    "contradiction": "Conflicting entries were not decided",
+    "recomputed": "Comparison gives the same answer when redone",
+    "combination": "Parts and whole agree",
+    "dates_supported": "Dates come from the record",
+    "numbers_supported": "Numbers come from the protocol or record",
+    "missing_confirmed": "Missing information is really missing",
+    "decision_language": "No final-decision wording",
+    "assumption": "Assumption made",
+    "ai_suggestion": "Claude suggestion is advisory and cites real evidence",
+}
+

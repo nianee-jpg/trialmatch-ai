@@ -16,7 +16,7 @@ An AI-powered clinical trial pre-screening **simulation** that uses multi-agent 
 | 2 | Protocol Agent: structured Pydantic criteria, verification, activity log | ✅ Done |
 | 3 | 5 SYNTHETIC patient profiles + Patient Agent tools | ✅ Done |
 | 4 | Eligibility Agent (deterministic thresholds; ambiguous text to a person, optional Claude suggestions) | ✅ Done |
-| 5 | Verification Agent, activity logs, screening report | ⏳ Planned |
+| 5 | Verification Agent, activity logs, downloadable screening report | ✅ Done |
 
 ## Folder structure
 
@@ -36,12 +36,15 @@ trialmatch-ai/
 │   ├── ui_text.py                  # plain-language wording for codes shown in the dashboard
 │   ├── patient_models.py           # Pydantic models for SYNTHETIC records (+ identifier checks)
 │   ├── eligibility_models.py       # per-criterion results (MET/NOT_MET/..., PRESENT/ABSENT/...)
+│   ├── verification_models.py      # verification checks and outcomes
+│   ├── report.py                   # self-contained HTML screening report
 │   └── agents/
 │       ├── protocol_tools.py       # deterministic tools: segment, thresholds, windows, flags, verify
 │       ├── protocol_agent.py       # Protocol Agent (offline by default, optional Claude tool calling)
 │       ├── patient_agent.py        # Patient Agent: field-lookup tools over one synthetic record
 │       ├── eligibility_logic.py    # comparisons, calendar windows, combining results (pure functions)
 │       ├── eligibility_agent.py    # Eligibility Agent + the CALIBRATE criterion rules
+│       ├── verification_agent.py   # Verification Agent: independent re-check of every result
 │       └── claude_loop.py          # shared optional Claude tool-calling loop
 ├── data/
 │   ├── raw/                        # exact API responses + .meta.json sidecars (URL, time, SHA-256)
@@ -55,6 +58,7 @@ trialmatch-ai/
     ├── test_patient_agent.py       # record safety checks, NOT_RECORDED, conflicts, scenario dates
     ├── test_eligibility_logic.py   # strict inequalities, calendar months, boundary days, combining
     ├── test_eligibility_agent.py   # expected results for each synthetic patient
+    ├── test_verification_agent.py  # honest results pass; 12 kinds of tampering are caught
     └── test_ui_text.py             # every code shown on screen has a plain translation
 ```
 
@@ -148,6 +152,51 @@ The registry's structured age limit ("18 Years", no maximum) is checked as `REG-
 need a person. It must look up evidence with the Patient Agent's tools and cite evidence IDs it
 actually retrieved. The status stays NEEDS_HUMAN_REVIEW.
 
+## Verification and the screening report (Milestone 5)
+
+After every pre-screening, the **Verification Agent** re-checks each result on its own. It does not
+reuse the Eligibility Agent's decisions. It re-reads the record through the Patient Agent and the
+protocol text, then checks that:
+
+- the criterion shown is exactly the protocol's wording at its recorded location;
+- every cited evidence ID exists in the record with the same value, unit and date;
+- decided results cite evidence (no unsupported claims);
+- every **number** in an explanation appears in the protocol or the record, and every **date** is in
+  the record or is a window start computed from it;
+- nothing was decided where the protocol omits a number or unit (**missing thresholds**), or where the
+  record has disagreeing entries (**contradictory evidence**);
+- numeric comparisons give the same answer when recomputed independently;
+- a criterion made of parts agrees with its parts;
+- information reported as missing really is missing;
+- no explanation uses final-decision wording ("eligible", "qualifies").
+
+Each result is marked **Verified**, **Verified with warnings** or **Failed verification**, and every
+outcome is written to the Activity log. Assumptions are listed as notes. The tests deliberately tamper
+with results in 12 different ways (invented numbers, altered evidence, ignored conflicts, …) and check
+that each one is caught.
+
+**Screening report.** The Pre-screening tab offers a self-contained HTML report. Open it in any
+browser and use *File → Print → Save as PDF* to get a PDF. It contains:
+- a SYNTHETIC banner at the top and bottom;
+- the protocol source and SHA-256 checksum;
+- the summary and follow-up list;
+- every criterion with its result, explanation, evidence references and verification outcome;
+- every record entry cited;
+- assumptions and verification notes;
+- an activity summary.
+
+CSV and JSON downloads are also available.
+
+## Limitations
+
+- The criterion rules in `eligibility_agent.py` and the keyword rules in `data_dictionary.py` were
+  written for NCT02260934. Another protocol would need its own rules.
+- Free-text judgement (investigator opinion, "severe", "consistent with") is always left to a person
+  offline. The optional Claude mode adds advisory suggestions only, and it was tested with a fake
+  client, not against the live API.
+- The synthetic records are deliberately simple and well-structured. Real charts are messier.
+- Drug classes are recognised from short lists (e.g. B-cell therapies); unlisted drugs are not detected.
+
 ## Install and run on macOS
 
 Works with **Python 3.9 or newer**, including the Python 3.9 that ships with macOS.
@@ -181,7 +230,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `134 passed`.
+**4. Run the tests.** You should see `158 passed`.
 
 ```bash
 python -m pytest
@@ -210,8 +259,9 @@ Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `str
   details, and download everything as JSON.
 - **Practice patients** tab, in four steps: choose a patient, check whether the record has
   everything the criteria ask about, look up any value (with its source), and view the full record.
-- **Pre-screening** tab: choose a patient, click **Run pre-screening**, and see a summary, a follow-up
-  list, every criterion's result with its evidence, and CSV/JSON downloads.
+- **Pre-screening** tab: choose a patient, click **Run pre-screening**, and see a summary, the
+  verification result, a follow-up list, every criterion's result with its evidence and verification
+  checks, and the downloadable report.
 - **Activity log** tab: every step each agent took, in plain language (the raw log is one click away).
 - **Raw API response** tab: the full JSON plus a download of the exact saved bytes.
 - Sidebar: **Fetch latest from ClinicalTrials.gov** and traceability details (URL, UTC timestamp,
