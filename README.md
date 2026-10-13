@@ -13,7 +13,7 @@ An AI-powered clinical trial pre-screening **simulation** that uses multi-agent 
 | Milestone | Scope | Status |
 |---|---|---|
 | 1 | ClinicalTrials.gov retrieval, raw-response traceability, metadata and eligibility display, basic Streamlit UI | ✅ Done |
-| 2 | Protocol Agent: structured Pydantic criteria | ⏳ Planned |
+| 2 | Protocol Agent: structured Pydantic criteria, verification, activity log | ✅ Done |
 | 3 | 5 SYNTHETIC patient profiles + Patient Agent tools | ⏳ Planned |
 | 4 | Eligibility Agent (deterministic thresholds + Claude for ambiguous text) | ⏳ Planned |
 | 5 | Verification Agent, activity logs, screening report | ⏳ Planned |
@@ -29,15 +29,57 @@ trialmatch-ai/
 │   ├── config.py                   # settings loaded from .env, with defaults
 │   ├── clinicaltrials_client.py    # API v2 retrieval + raw-response saving/caching
 │   ├── study_parser.py             # Pydantic models for study metadata + eligibility
-│   └── agents/                     # Protocol / Patient / Eligibility / Verification (later)
+│   ├── protocol_models.py          # Pydantic models for structured criteria
+│   ├── data_dictionary.py          # patient data fields + rules mapping protocol wording to them
+│   ├── text_utils.py               # Markdown un-escaping, number parsing
+│   ├── activity_log.py             # visible log of agent tool calls and checks
+│   └── agents/
+│       ├── protocol_tools.py       # deterministic tools: segment, thresholds, windows, flags, verify
+│       └── protocol_agent.py       # Protocol Agent (offline by default, optional Claude tool calling)
 ├── data/
 │   ├── raw/                        # exact API responses + .meta.json sidecars (URL, time, SHA-256)
 │   └── patients/                   # SYNTHETIC patient records (Milestone 3)
 └── tests/
     ├── fixtures/mock_study_response.json   # MOCK data shaped like the API (not the real protocol)
     ├── test_clinicaltrials_client.py
-    └── test_study_parser.py
+    ├── test_study_parser.py
+    ├── test_protocol_tools.py      # strict inequalities, missing data, date windows, prior treatment
+    └── test_protocol_agent.py      # end-to-end on the real CALIBRATE text, incl. a fake Claude client
 ```
+
+## How the Protocol Agent works (Milestone 2)
+
+The agent turns the eligibility text into 45 structured criteria (5 inclusion and 35 exclusion
+criteria, plus their sub-criteria). Each one has an ID such as `EXC-14` or `INC-03.b.1`, its type,
+its **exact original text**, a readable version, a normalized interpretation, thresholds, time
+windows, the patient data it needs, review flags, and a source reference (JSON path, character
+offsets, raw file and SHA-256).
+
+**It runs fully offline. No API key is needed.** The steps are deterministic tools, each one logged
+in the **Agent activity** tab:
+
+1. `segment_criteria`: split the text at numbered items and bullets, keeping exact character offsets.
+2. `extract_thresholds`: find comparisons such as `\<1500/mm\^3` (strict `<`) or `\>=2 times the upper limit of normal`.
+3. `extract_time_windows`: find "within 14 days before visit -1", "within the past 6 months", and similar.
+4. `detect_flags`: mark investigator judgement, subjective terms, non-exhaustive lists and half-life rules.
+5. `map_required_data`: list the patient data fields from `data_dictionary.py` that a criterion needs.
+6. `verify_extraction`: check that every criterion's text matches the source exactly, that no source
+   text was skipped, and that no number appears that is not in the source.
+
+What it found in the published CALIBRATE record:
+
+- **EXC-04** "Moderately severe anemia (Hgb \< mg/dL)" has **no number**. It is flagged
+  `MISSING_THRESHOLD`, and no value is ever filled in.
+- **INC-04** "UPCR \>1" states no unit (`UNIT_NOT_STATED`).
+- **INC-03.b.1–3** (urinary sediment) are printed at the same indent as the biopsy options. A
+  documented rule nests them under INC-03.b, flagged `STRUCTURE_INFERRED` so a person can confirm it.
+- Many windows ("within the past 6 months") do not say which date they count from (`TIME_ANCHOR_NOT_STATED`).
+
+**Optional Claude mode.** If you add `ANTHROPIC_API_KEY` to `.env`, the same rule-based pass runs
+first. Claude then reads the criteria through tool calls (`list_criteria`, `get_criterion_details`)
+and proposes plain-language interpretations with `submit_interpretation`. That tool **rejects** any
+text containing a number that is not in the criterion's source text. Claude cannot change IDs,
+original text or thresholds. If the API fails or declines, the rule-based results are kept.
 
 ## Install and run on macOS
 
@@ -72,7 +114,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `18 passed`.
+**4. Run the tests.** You should see `56 passed`.
 
 ```bash
 python -m pytest
@@ -96,6 +138,9 @@ Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `str
 - **Eligibility criteria** tab: sex/age limits and the eligibility text **exactly as published**,
   shown either as Inclusion/Exclusion sections or as the complete original text, with a download button.
 - **Arms & outcomes** tab: arms, interventions, primary and secondary outcomes.
+- **Extracted criteria** tab: click **Run Protocol Agent** to see every criterion, its thresholds,
+  windows, required data and review flags, with a JSON download.
+- **Agent activity** tab: every tool call the agent made, and the verification result.
 - **Raw API response** tab: the full JSON plus a download of the exact saved bytes.
 - Sidebar: **Fetch latest from ClinicalTrials.gov** and traceability details (URL, UTC timestamp,
   SHA-256 checksum, raw file path).
