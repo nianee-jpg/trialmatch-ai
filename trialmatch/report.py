@@ -17,6 +17,7 @@ from trialmatch.data_dictionary import field_label
 from trialmatch.eligibility_models import ScreeningResult
 from trialmatch.patient_models import PatientRecord
 from trialmatch.protocol_models import ProtocolExtraction
+from trialmatch.screening_summary import follow_up, headline, option_label, part_context
 from trialmatch.study_parser import StudyMetadata
 from trialmatch.ui_text import CHECK_LABELS, OUTCOME_LABELS, RESULT_LABELS, RESULT_MEANINGS
 from trialmatch.verification_models import Severity, VerificationReport
@@ -36,6 +37,10 @@ th,td{border:1px solid #d9e2ec;padding:6px 8px;text-align:left;vertical-align:to
 th{background:#f0f4f8} .muted{color:#627d98;font-size:12px} .grid{display:flex;gap:24px;flex-wrap:wrap}
 .grid>div{flex:1;min-width:280px} code{font-size:12px} .fail{color:#c81e1e;font-weight:600}
 .sub td:first-child{padding-left:22px}
+.status{border-radius:8px;padding:12px 16px;margin:16px 0;border:2px solid}
+.status h2{border:none;margin:0 0 6px;padding:0}
+.rule_out{background:#fde8e8;border-color:#c81e1e} .review,.unknown{background:#fff8e1;border-color:#d97706}
+.none{background:#e8f1fd;border-color:#1e63c8}
 @media print{body{margin:0} h2{page-break-after:avoid} tr{page-break-inside:avoid}}
 """
 
@@ -93,6 +98,13 @@ def build_html_report(
         ["Report generated", generated],
     ]))
 
+    # Status headline -------------------------------------------------------
+    head = headline(screening)
+    parts.append(f"<div class='status {head.level}'><h2>Pre-screening status: {_e(head.title)}</h2><ul>"
+                 + "".join(f"<li>{_e(d)}</li>" for d in head.details)
+                 + "</ul><p class='muted'>This is a pre-screening status, not an eligibility decision. The "
+                   "verification counts below check the app's own work, not the patient.</p></div>")
+
     # Summary ---------------------------------------------------------------
     parts.append("<h2>Summary</h2><div class='grid'>")
     parts.append("<div><b>Inclusion criteria</b>" + _table(["Result", "Count"], [
@@ -103,16 +115,17 @@ def build_html_report(
     ]) + "</div>")
     parts.append("<div><b>Verification</b>" + _table(["Outcome", "Count"], [
         [OUTCOME_LABELS[k], v] for k, v in vcounts.items()]) + "</div></div>")
-    parts.append("<p class='muted'>Counts are for main criteria (sub-criteria such as INC-03.a are listed in full "
-                 "below). There is deliberately no overall eligibility result.</p>")
+    parts.append("<p class='muted'>Counts are for main criteria. Some criteria offer several options (for example "
+                 "INC-03.b.1 to INC-03.b.3); only one option has to be met, so an option that is not met does not "
+                 "count against the patient when another option is met. There is deliberately no overall "
+                 "eligibility result.</p>")
     parts.append("<p class='muted'>" + " · ".join(f"<b>{_e(RESULT_LABELS[s])}</b>: {_e(m)}"
                                                   for s, m in RESULT_MEANINGS.items()) + "</p>")
 
     # Follow-up ---------------------------------------------------------------
     parts.append("<h2>What to follow up</h2><div class='grid'>")
-    rule_out = [e for e in top if e.status in ("NOT_MET", "PRESENT")]
-    unknown = [e for e in top if e.status == "UNKNOWN"]
-    review = [e for e in top if e.status == "NEEDS_HUMAN_REVIEW"]
+    todo = follow_up(screening)
+    rule_out, unknown, review = todo.rule_out, todo.unknown, todo.review
     parts.append("<div><b>⛔ May rule the patient out</b><ul>" + ("".join(
         f"<li><b>{_e(e.criterion_id)}</b>: {_e(e.reason)}</li>" for e in rule_out)
         or "<li>Nothing in the record clearly rules this patient out. That is not the same as eligible.</li>")
@@ -130,13 +143,17 @@ def build_html_report(
     for e in screening.evaluations:
         v = verification.by_id(e.criterion_id)
         problems = "; ".join(f"{CHECK_LABELS.get(c.check, c.check)}: {c.message}" for c in v.problems)
+        tag = option_label(screening, e)
+        context = part_context(screening, e)
         rows.append([
-            e.criterion_id, e.type.title(), e.criterion_text, RESULT_LABELS[e.status], e.reason,
+            e.criterion_id, e.type.title(), e.criterion_text,
+            RESULT_LABELS[e.status] + (f" ({tag})" if tag else ""),
+            f"{context} {e.reason}" if context else e.reason,
             ", ".join(x.evidence_id for x in e.evidence) or "—",
             OUTCOME_LABELS[v.outcome.value] + (f" ({problems})" if problems else ""),
         ])
         classes.append("sub" if e.parent_id else "")
-    parts.append(_table(["ID", "Type", "Criterion (protocol wording)", "Result", "Why", "Evidence", "Verification"],
+    parts.append(_table(["ID", "Type", "Criterion (protocol wording)", "Result", "Why", "Evidence", "Accuracy check"],
                         rows, row_class=classes))
 
     # Evidence --------------------------------------------------------------

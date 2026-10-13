@@ -38,6 +38,7 @@ trialmatch-ai/
 │   ├── eligibility_models.py       # per-criterion results (MET/NOT_MET/..., PRESENT/ABSENT/...)
 │   ├── verification_models.py      # verification checks and outcomes
 │   ├── report.py                   # self-contained HTML screening report
+│   ├── screening_summary.py        # pre-screening status headline and option explanations
 │   └── agents/
 │       ├── protocol_tools.py       # deterministic tools: segment, thresholds, windows, flags, verify
 │       ├── protocol_agent.py       # Protocol Agent (offline by default, optional Claude tool calling)
@@ -59,6 +60,7 @@ trialmatch-ai/
     ├── test_eligibility_logic.py   # strict inequalities, calendar months, boundary days, combining
     ├── test_eligibility_agent.py   # expected results for each synthetic patient
     ├── test_verification_agent.py  # honest results pass; 12 kinds of tampering are caught
+    ├── test_screening_summary.py   # status headline and 'option not needed' explanations
     └── test_ui_text.py             # every code shown on screen has a plain translation
 ```
 
@@ -128,8 +130,13 @@ data through the Patient Agent's logged tools.
 
 - Inclusion results: **MET**, **NOT_MET**, **UNKNOWN** (information missing), **NEEDS_HUMAN_REVIEW**
 - Exclusion results: **PRESENT**, **ABSENT**, **UNKNOWN**, **NEEDS_HUMAN_REVIEW**
-- There is **no overall eligibility decision**, only a follow-up list: what may rule the patient
-  out, what information to request, and what the study team must decide.
+- There is **no overall eligibility decision**. Instead, each patient gets a **pre-screening status**
+  (*Possible rule-out found*, *Needs review by the study team*, *Information missing*, or *No problems
+  found by the app*) and a follow-up list: what may rule the patient out, what information to
+  request, and what the study team must decide.
+- Some criteria offer **options** (e.g. INC-03.b.1–3: "any one of the following"). An option that
+  is not met is labelled *option · not needed* when another option already satisfies the criterion,
+  so it is never counted against the patient.
 
 How results are reached:
 
@@ -230,7 +237,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `158 passed`.
+**4. Run the tests.** You should see `171 passed`.
 
 ```bash
 python -m pytest
