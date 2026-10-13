@@ -1,0 +1,445 @@
+{
+  "record_label": "SYNTHETIC",
+  "synthetic": true,
+  "patient_id": "SYN-004",
+  "display_name": "Synthetic Patient D",
+  "scenario": "Prior-treatment rules and date windows: rituximab in 2012 (any prior B-cell therapy), last cyclophosphamide dose about 4.7 months before screening (inside 6 months), IVIG 77 days before screening (inside 90 days), yellow fever vaccine 116 days before enrollment (outside 3 months), and three steroid courses given for lupus itself rather than a comorbidity.",
+  "observations": {
+    "access.peripheral_venous": [
+      {
+        "value": true,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "allergies.contrast_agents": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "allergies.monoclonal_antibodies": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "compliance.able_to_comply": [
+      {
+        "value": true,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "consent.able_to_consent": [
+      {
+        "value": true,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "demographics.age": [
+      {
+        "value": 38,
+        "unit": "years",
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "demographics.sex": [
+      {
+        "value": "Female",
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "diagnosis.sle_acr_criteria": [
+      {
+        "value": true,
+        "date": "2012-06-11",
+        "source": "Screening clinic note (synthetic)",
+        "note": "Meets 1997 ACR classification criteria (synthetic chart summary)"
+      }
+    ],
+    "history.comorbidities": [
+      {
+        "value": "None significant",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "history.malignancy": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "history.primary_immunodeficiency": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "history.transplantation": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "imaging.chest_radiograph": [
+      {
+        "value": "No acute disease. No fibrotic changes.",
+        "date": "2015-03-02",
+        "source": "Radiology report (synthetic)"
+      }
+    ],
+    "infections.chronic_suppressive_therapy": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "infections.current": [
+      {
+        "value": false,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)",
+        "note": "No active infection on history or examination"
+      }
+    ],
+    "infections.hepatitis_b": [
+      {
+        "value": {
+          "HBsAg": "negative",
+          "anti_HBc": "negative"
+        },
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "infections.hepatitis_c": [
+      {
+        "value": "negative",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "infections.history": [
+      {
+        "value": "No significant or recurrent infections documented",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "infections.hiv": [
+      {
+        "value": "negative",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "infections.hospitalizations": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)",
+        "note": "No infection-related hospitalizations documented"
+      }
+    ],
+    "infections.parenteral_antimicrobials": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)",
+        "note": "No IV/IM antimicrobials documented"
+      }
+    ],
+    "infections.quantiferon_tb": [
+      {
+        "value": "negative",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.alkaline_phosphatase": [
+      {
+        "value": 75,
+        "unit": "U/L",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)",
+        "attributes": {
+          "uln": 120
+        }
+      }
+    ],
+    "labs.alt": [
+      {
+        "value": 18,
+        "unit": "U/L",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)",
+        "attributes": {
+          "uln": 45
+        }
+      }
+    ],
+    "labs.ana": [
+      {
+        "value": "positive (1:1280)",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.anc": [
+      {
+        "value": 2900,
+        "unit": "/mm^3",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.anti_dsdna": [
+      {
+        "value": 340,
+        "unit": "IU/mL",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)",
+        "note": "Positive (reference < 30 IU/mL)"
+      }
+    ],
+    "labs.ast": [
+      {
+        "value": 22,
+        "unit": "U/L",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)",
+        "attributes": {
+          "uln": 40
+        }
+      }
+    ],
+    "labs.egfr": [
+      {
+        "value": 61,
+        "unit": "mL/min/1.73m^2",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)",
+        "note": "CKD-EPI equation"
+      }
+    ],
+    "labs.hemoglobin": [
+      {
+        "value": 11.6,
+        "unit": "g/dL",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.iga": [
+      {
+        "value": 190,
+        "unit": "mg/dL",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.igg": [
+      {
+        "value": 870,
+        "unit": "mg/dL",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.platelets": [
+      {
+        "value": 176000,
+        "unit": "/mm^3",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.upcr": [
+      {
+        "value": 3.2,
+        "unit": "mg/mg",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "labs.upcr_collection_method": [
+      {
+        "value": "24-hour urine collection",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "medications.corticosteroid_courses": [
+      {
+        "value": 3,
+        "unit": "courses",
+        "date": "2014-03-02",
+        "end_date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)",
+        "note": "Three pulse courses, all for lupus flares (not for another comorbidity)"
+      }
+    ],
+    "medications.history": [
+      {
+        "value": "rituximab",
+        "date": "2012-05-07",
+        "end_date": "2012-05-21",
+        "source": "Pharmacy dispensing record (synthetic)",
+        "note": "Two 1 g infusions for refractory arthritis",
+        "attributes": {
+          "route": "IV"
+        }
+      },
+      {
+        "value": "cyclophosphamide",
+        "date": "2014-05-12",
+        "end_date": "2014-10-10",
+        "source": "Pharmacy dispensing record (synthetic)",
+        "note": "NIH regimen, monthly; last dose 2014-10-10",
+        "attributes": {
+          "route": "IV"
+        }
+      },
+      {
+        "value": "mycophenolate mofetil",
+        "date": "2014-11-01",
+        "source": "Pharmacy dispensing record (synthetic)",
+        "note": "3 g/day, ongoing",
+        "attributes": {
+          "route": "PO"
+        }
+      },
+      {
+        "value": "prednisone",
+        "date": "2014-05-12",
+        "source": "Pharmacy dispensing record (synthetic)",
+        "note": "Ongoing",
+        "attributes": {
+          "route": "PO"
+        }
+      }
+    ],
+    "procedures.ivig_plasmapheresis_leukopheresis": [
+      {
+        "value": "IVIG",
+        "date": "2014-12-15",
+        "source": "Infusion center record (synthetic)",
+        "note": "Single course for immune thrombocytopenia"
+      }
+    ],
+    "psychiatric.history": [
+      {
+        "value": false,
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "psychiatric.suicidality": [
+      {
+        "value": false,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)",
+        "note": "Screening questionnaire negative"
+      }
+    ],
+    "renal.biopsy_class": [
+      {
+        "value": "ISN/RPS Class V + IV-G (A)",
+        "date": "2015-01-05",
+        "source": "Renal pathology report (synthetic)"
+      }
+    ],
+    "renal.biopsy_date": [
+      {
+        "value": "2015-01-05",
+        "source": "Renal pathology report (synthetic)"
+      }
+    ],
+    "reproductive.breastfeeding": [
+      {
+        "value": false,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "reproductive.contraception_willingness": [
+      {
+        "value": true,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)",
+        "note": "Agrees to oral contraceptive plus condom"
+      }
+    ],
+    "reproductive.menses_at_collection": [
+      {
+        "value": false,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "reproductive.pregnancy_status": [
+      {
+        "value": "negative serum hCG",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "social.substance_abuse": [
+      {
+        "value": false,
+        "date": "2015-03-02",
+        "source": "Screening clinic note (synthetic)"
+      }
+    ],
+    "urinalysis.cellular_casts": [
+      {
+        "value": "WBC casts present",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "urinalysis.rbc_per_hpf": [
+      {
+        "value": 15,
+        "unit": "/hpf",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "urinalysis.wbc_per_hpf": [
+      {
+        "value": 7,
+        "unit": "/hpf",
+        "date": "2015-03-02",
+        "source": "Central laboratory report (synthetic)"
+      }
+    ],
+    "vaccinations.live_attenuated": [
+      {
+        "value": "yellow fever vaccine",
+        "date": "2014-11-20",
+        "source": "Immunization record (synthetic)"
+      }
+    ],
+    "visits.enrollment_date": [
+      {
+        "value": "2015-03-16",
+        "source": "Study visit schedule (synthetic)",
+        "note": "Planned enrollment date"
+      }
+    ],
+    "visits.screening_date": [
+      {
+        "value": "2015-03-02",
+        "source": "Study visit schedule (synthetic)"
+      }
+    ],
+    "visits.visit_minus_1_date": [
+      {
+        "value": "2015-03-02",
+        "source": "Study visit schedule (synthetic)",
+        "note": "Visit -1 held on the screening date"
+      }
+    ]
+  }
+}

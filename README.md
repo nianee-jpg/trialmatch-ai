@@ -14,7 +14,7 @@ An AI-powered clinical trial pre-screening **simulation** that uses multi-agent 
 |---|---|---|
 | 1 | ClinicalTrials.gov retrieval, raw-response traceability, metadata and eligibility display, basic Streamlit UI | ✅ Done |
 | 2 | Protocol Agent: structured Pydantic criteria, verification, activity log | ✅ Done |
-| 3 | 5 SYNTHETIC patient profiles + Patient Agent tools | ⏳ Planned |
+| 3 | 5 SYNTHETIC patient profiles + Patient Agent tools | ✅ Done |
 | 4 | Eligibility Agent (deterministic thresholds + Claude for ambiguous text) | ⏳ Planned |
 | 5 | Verification Agent, activity logs, screening report | ⏳ Planned |
 
@@ -33,18 +33,21 @@ trialmatch-ai/
 │   ├── data_dictionary.py          # patient data fields + rules mapping protocol wording to them
 │   ├── text_utils.py               # Markdown un-escaping, number parsing
 │   ├── activity_log.py             # visible log of agent tool calls and checks
+│   ├── patient_models.py           # Pydantic models for SYNTHETIC records (+ identifier checks)
 │   └── agents/
 │       ├── protocol_tools.py       # deterministic tools: segment, thresholds, windows, flags, verify
-│       └── protocol_agent.py       # Protocol Agent (offline by default, optional Claude tool calling)
+│       ├── protocol_agent.py       # Protocol Agent (offline by default, optional Claude tool calling)
+│       └── patient_agent.py        # Patient Agent: field-lookup tools over one synthetic record
 ├── data/
 │   ├── raw/                        # exact API responses + .meta.json sidecars (URL, time, SHA-256)
-│   └── patients/                   # SYNTHETIC patient records (Milestone 3)
+│   └── patients/                   # SYN-001 … SYN-005: fictional records, labelled SYNTHETIC
 └── tests/
     ├── fixtures/mock_study_response.json   # MOCK data shaped like the API (not the real protocol)
     ├── test_clinicaltrials_client.py
     ├── test_study_parser.py
     ├── test_protocol_tools.py      # strict inequalities, missing data, date windows, prior treatment
-    └── test_protocol_agent.py      # end-to-end on the real CALIBRATE text, incl. a fake Claude client
+    ├── test_protocol_agent.py      # end-to-end on the real CALIBRATE text, incl. a fake Claude client
+    └── test_patient_agent.py       # record safety checks, NOT_RECORDED, conflicts, scenario dates
 ```
 
 ## How the Protocol Agent works (Milestone 2)
@@ -81,6 +84,31 @@ and proposes plain-language interpretations with `submit_interpretation`. That t
 text containing a number that is not in the criterion's source text. Claude cannot change IDs,
 original text or thresholds. If the API fails or declines, the rule-based results are kept.
 
+## Synthetic patients and the Patient Agent (Milestone 3)
+
+`data/patients/` holds five **fictional** lupus nephritis records. Each one is designed to test
+something specific:
+
+| ID | Designed to test |
+|---|---|
+| SYN-001 | A complete record with values far from every threshold. It still needs human review (e.g. the anemia criterion has no published cutoff) |
+| SYN-002 | Strict-inequality boundaries: age 18, ANC 1500, platelets 50,000, IgG 450, IgA 10, eGFR 20, UPCR 1.0, AST exactly 2 × ULN |
+| SYN-003 | Missing data (no hemoglobin, IgA, QuantiFERON, HIV, anti-dsDNA …), a spot-urine UPCR, and date windows just outside their limits |
+| SYN-004 | Prior-treatment rules (rituximab in 2012, recent cyclophosphamide, IVIG) and a live vaccine just outside 3 months |
+| SYN-005 | Contradictions: two same-day ANC values on either side of 1500, a negative hCG vs a reported positive home test, "no prior biologics" vs a belimumab pharmacy record |
+
+Each field holds a **list of observations** (value, unit, date, fictional source document, note).
+Nothing is merged or averaged. A record is refused unless it is labelled `SYNTHETIC`, has an ID such as
+`SYN-001`, uses only data-dictionary fields, and contains no identifying keys (name, MRN, date of
+birth, address …).
+
+The **Patient Agent** is the only component that reads patient data. Its tools (`get_field`,
+`get_medication_history`, `list_recorded_fields`, `get_patient_overview`, `list_patients`) return
+each observation with an evidence ID such as `SYN-003/labs.upcr/0`, report `NOT_RECORDED` instead of
+guessing, and report `CONFLICTING` when same-day values disagree. Every call appears in the
+**Agent activity** tab. The tools also have JSON schemas, so the Eligibility Agent (Milestone 4)
+can call them.
+
 ## Install and run on macOS
 
 Works with **Python 3.9 or newer**, including the Python 3.9 that ships with macOS.
@@ -114,7 +142,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `56 passed`.
+**4. Run the tests.** You should see `81 passed`.
 
 ```bash
 python -m pytest
@@ -140,6 +168,8 @@ Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `str
 - **Arms & outcomes** tab: arms, interventions, primary and secondary outcomes.
 - **Extracted criteria** tab: click **Run Protocol Agent** to see every criterion, its thresholds,
   windows, required data and review flags, with a JSON download.
+- **Synthetic patients** tab: choose a patient, see which fields the protocol needs that are missing
+  or conflicting, and ask the Patient Agent questions.
 - **Agent activity** tab: every tool call the agent made, and the verification result.
 - **Raw API response** tab: the full JSON plus a download of the exact saved bytes.
 - Sidebar: **Fetch latest from ClinicalTrials.gov** and traceability details (URL, UTC timestamp,

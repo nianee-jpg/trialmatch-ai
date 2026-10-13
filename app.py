@@ -26,6 +26,7 @@ from trialmatch.clinicaltrials_client import (
     get_study,
 )
 from trialmatch.activity_log import ActivityLog
+from trialmatch.agents.patient_agent import PatientAgent, PatientDataError, load_patients
 from trialmatch.agents.protocol_agent import ProtocolAgent, make_claude_client
 from trialmatch.data_dictionary import DATA_FIELDS
 from trialmatch.protocol_models import Criterion, ProtocolExtraction
@@ -107,7 +108,7 @@ def render_sidebar(retrieval: Optional[StudyRetrieval]) -> None:
                         "to enable optional Claude interpretations.")
 
         st.subheader("Coming next")
-        st.caption("SYNTHETIC patients · Patient Agent · Eligibility Agent · Verification Agent · Screening report")
+        st.caption("Eligibility Agent · Verification Agent · Screening report")
 
 
 def render_overview(study: StudyMetadata) -> None:
@@ -259,9 +260,16 @@ def render_raw(retrieval: StudyRetrieval) -> None:
     st.json(retrieval.data, expanded=False)
 
 
+def get_log() -> ActivityLog:
+    """One activity log per browser session, shared by all agents."""
+    if "activity_log" not in st.session_state:
+        st.session_state["activity_log"] = ActivityLog()
+    return st.session_state["activity_log"]
+
+
 def run_protocol_agent(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
-    """Run the Protocol Agent and keep its result and log in session state."""
-    log = ActivityLog()
+    """Run the Protocol Agent and keep its result in session state."""
+    log = get_log()
     agent = ProtocolAgent(log, client=make_claude_client())
     extraction = agent.run(
         nct_id=study.nct_id,
@@ -271,7 +279,6 @@ def run_protocol_agent(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
     )
     st.session_state["extraction"] = extraction
     st.session_state["extraction_sha"] = retrieval.sha256
-    st.session_state["activity_log"] = log
 
 
 def _criteria_table(criteria: list) -> pd.DataFrame:
@@ -394,12 +401,132 @@ def render_extracted_criteria(retrieval: StudyRetrieval, study: StudyMetadata) -
     )
 
 
-def render_activity_log() -> None:
-    log: Optional[ActivityLog] = st.session_state.get("activity_log")
-    if log is None or not log.entries:
-        st.info("No agent activity yet. Run the Protocol Agent from the **Extracted criteria** tab.")
+def _fmt_value(value: object) -> str:
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, dict):
+        return "; ".join(f"{k}: {v}" for k, v in value.items())
+    return str(value)
+
+
+def render_patients() -> None:
+    try:
+        patients = load_patients()
+    except PatientDataError as exc:
+        st.error(f"A patient file was rejected: {exc}")
         return
+    if not patients:
+        st.info("No synthetic patient files found in `data/patients/`.")
+        return
+
+    st.error(
+        "**SYNTHETIC RECORDS ONLY.** Every patient below is fictional and was written to exercise specific "
+        "protocol rules. No real patient information is used or transmitted.",
+        icon="🧪",
+    )
+    agent = PatientAgent(get_log(), patients)
+    pid = st.selectbox(
+        "Synthetic patient",
+        list(patients),
+        format_func=lambda i: f"{i} · {patients[i].display_name} (SYNTHETIC)",
+    )
+    record = patients[pid]
+    st.info(f"**Designed to test:** {record.scenario}")
+
+    overview = agent.get_patient_overview(pid)["key_facts"]
+
+    def first(field: str) -> str:
+        res = overview[field]
+        return _fmt_value(res["observations"][0]["value"]) if res["status"] == "FOUND" else "NOT RECORDED"
+
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Age (years)", first("demographics.age"))
+    c2.metric("Sex", first("demographics.sex"))
+    c3.metric("Screening date", first("visits.screening_date"))
+    c4.metric("Planned enrollment", first("visits.enrollment_date"))
+
+    # --- Data availability against the extracted criteria ------------------
+    st.markdown("#### Data availability for the protocol")
+    extraction: Optional[ProtocolExtraction] = st.session_state.get("extraction")
+    if extraction is None:
+        st.caption("Run the Protocol Agent first to see which required fields this record has.")
+    else:
+        needed: dict = {}
+        for c in extraction.criteria:
+            for r in c.required_data:
+                needed.setdefault(r.field, []).append(c.criterion_id)
+        rows = []
+        for field, ids in sorted(needed.items()):
+            res = agent.get_field(pid, field)
+            status = res["status"] if res.get("consistency") != "CONFLICTING" else "CONFLICTING"
+            rows.append({"Field": field, "Status": status, "Observations": len(res.get("observations", [])),
+                         "Needed by": ", ".join(sorted(set(ids)))})
+        df = pd.DataFrame(rows)
+        counts = df["Status"].value_counts()
+        a, b, c = st.columns(3)
+        a.metric("Fields found", int(counts.get("FOUND", 0)))
+        b.metric("Not recorded", int(counts.get("NOT_RECORDED", 0)))
+        c.metric("Conflicting", int(counts.get("CONFLICTING", 0)))
+        only_gaps = st.checkbox("Show only NOT_RECORDED and CONFLICTING fields")
+        if only_gaps:
+            df = df[df["Status"] != "FOUND"]
+        st.dataframe(df, hide_index=True, width="stretch")
+        st.caption("This is a data-completeness check only. It does not evaluate eligibility.")
+
+    # --- Ask the Patient Agent ---------------------------------------------
+    st.markdown("#### Ask the Patient Agent")
+    st.caption("Each question is a logged tool call (see the Agent activity tab).")
+    q1, q2 = st.columns([2, 1])
+    tool = q1.radio("Tool", ["get_field", "get_medication_history"], horizontal=True)
+    if tool == "get_field":
+        field = q2.selectbox("Field", sorted(DATA_FIELDS))
+        args = {"patient_id": pid, "field": field}
+    else:
+        drug = q2.text_input("Drug name (blank for all)", "")
+        args = {"patient_id": pid, "drug": drug}
+    if st.button("🔎 Ask Patient Agent"):
+        st.session_state["patient_answer"] = (args, agent.call(tool, args))
+    answer = st.session_state.get("patient_answer")
+    if answer and answer[0].get("patient_id") == pid:
+        result = answer[1]
+        status = result.get("status")
+        if result.get("consistency") == "CONFLICTING":
+            st.warning(f"CONFLICTING: {result.get('message', '')}")
+        elif status == "FOUND":
+            st.success(f"FOUND: {len(result['observations'])} observation(s)")
+        else:
+            st.warning(f"{status}: {result.get('message', '')}")
+        st.json(result, expanded=True)
+
+    # --- Full record --------------------------------------------------------
+    with st.expander(f"Full SYNTHETIC record for {pid}"):
+        rows = []
+        for field, observations in record.observations.items():
+            for i, o in enumerate(observations):
+                rows.append({"Evidence ID": f"{pid}/{field}/{i}", "Field": field, "Value": _fmt_value(o.value),
+                             "Unit": o.unit, "Date": o.date, "End date": o.end_date, "Source": o.source,
+                             "Note": o.note, "Attributes": _fmt_value(o.attributes) if o.attributes else None})
+        st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+        st.download_button(
+            "⬇️ Download this SYNTHETIC record (.json)",
+            data=record.model_dump_json(indent=2),
+            file_name=f"{pid}_SYNTHETIC.json",
+            mime="application/json",
+        )
+
+
+def render_activity_log() -> None:
+    log = get_log()
+    if not log.entries:
+        st.info("No agent activity yet. Run the Protocol Agent, or ask the Patient Agent a question.")
+        return
+    if st.button("🧹 Clear log"):
+        log.entries.clear()
+        st.rerun()
     df = pd.DataFrame(log.as_rows())
+    agents = sorted(df["agent"].unique())
+    chosen_agents = st.multiselect("Agents", agents, default=agents)
+    df = df[df["agent"].isin(chosen_agents)]
     events = sorted(df["event"].unique())
     chosen = st.multiselect("Event types", events, default=events)
     tools_used = sorted(t for t in df["tool"].dropna().unique())
@@ -436,9 +563,9 @@ def main() -> None:
         st.info("Check your internet connection and click **Fetch latest from ClinicalTrials.gov**.")
         return
 
-    tab_overview, tab_elig, tab_criteria, tab_log, tab_arms, tab_raw = st.tabs(
-        ["📋 Study overview", "📝 Eligibility criteria", "🧩 Extracted criteria", "🛰️ Agent activity",
-         "💊 Arms & outcomes", "🗂️ Raw API response"]
+    tab_overview, tab_elig, tab_criteria, tab_patients, tab_log, tab_arms, tab_raw = st.tabs(
+        ["📋 Study overview", "📝 Eligibility criteria", "🧩 Extracted criteria", "🧑‍⚕️ Synthetic patients",
+         "🛰️ Agent activity", "💊 Arms & outcomes", "🗂️ Raw API response"]
     )
     with tab_overview:
         render_overview(study)
@@ -446,6 +573,8 @@ def main() -> None:
         render_eligibility(study)
     with tab_criteria:
         render_extracted_criteria(retrieval, study)
+    with tab_patients:
+        render_patients()
     with tab_log:
         render_activity_log()
     with tab_arms:
