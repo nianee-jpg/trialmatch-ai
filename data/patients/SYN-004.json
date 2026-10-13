@@ -3,7 +3,7 @@
   "synthetic": true,
   "patient_id": "SYN-004",
   "display_name": "Synthetic Patient D",
-  "scenario": "Has had treatments the study rules out (rituximab, recent cyclophosphamide, IVIG) and a live vaccine just outside the 3-month limit. This checks the treatment-history and date rules.",
+  "scenario": "Has had treatments the study rules out (rituximab in 2012, cyclophosphamide about 4.7 months ago) and a live vaccine just outside the 3-month limit. IVIG was given 77 days before screening but 91 days before enrollment, so the 90-day rule depends on which date the protocol means. This checks treatment-history and date rules.",
   "observations": {
     "access.peripheral_venous": [
       {

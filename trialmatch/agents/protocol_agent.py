@@ -19,12 +19,12 @@ Every tool call, in both modes, is written to the ActivityLog.
 
 from __future__ import annotations
 
-import json
 from typing import Any, Callable, Dict, List, Optional
 
 from trialmatch import config
 from trialmatch.activity_log import ActivityLog, summarize
 from trialmatch.agents import protocol_tools as tools
+from trialmatch.agents.claude_loop import run_tool_loop
 from trialmatch.protocol_models import (
     Criterion,
     Flag,
@@ -143,8 +143,6 @@ class ProtocolAgent:
 
     def _claude_pass(self, nct_id: str, criteria: List[Criterion]) -> bool:
         """Let Claude refine interpretations via tools. Returns True if it completed."""
-        import anthropic  # imported here so offline mode never needs the SDK configured
-
         by_id = {c.criterion_id: c for c in criteria}
         handlers = {
             "list_criteria": lambda _inp: [
@@ -156,61 +154,20 @@ class ProtocolAgent:
             "submit_interpretation": lambda inp: _submit(by_id, inp),
         }
 
-        messages: List[Dict[str, Any]] = [{"role": "user", "content": (
-            f"Review the {len(criteria)} eligibility criteria of {nct_id}. Call list_criteria, inspect any "
-            "criterion with get_criterion_details, and call submit_interpretation for every criterion that "
-            "has flags or no numeric threshold. Finish with a one-sentence summary.")}]
-
-        for turn in range(1, MAX_CLAUDE_TURNS + 1):
-            self.log.add(AGENT_NAME, "llm_request", f"Turn {turn}: sending {len(messages)} messages to {self.model}.")
-            try:
-                response = self.client.beta.messages.create(
-                    model=self.model,
-                    max_tokens=16000,
-                    system=CLAUDE_SYSTEM_PROMPT,
-                    tools=CLAUDE_TOOLS,
-                    messages=messages,
-                    # Server-side refusal fallback; Anthropic picks the fallback model.
-                    betas=["server-side-fallback-2026-07-01"],
-                    extra_body={"fallbacks": "default", "output_config": {"effort": "medium"}},
-                )
-            except anthropic.APIError as exc:
-                self.log.add(AGENT_NAME, "warning", f"Claude API error, keeping rule-based results: {exc}")
-                return False
-
-            self.log.add(AGENT_NAME, "llm_response", f"stop_reason={response.stop_reason}")
-            if response.stop_reason == "refusal":
-                self.log.add(AGENT_NAME, "warning", "Claude declined the request; keeping rule-based results.")
-                return False
-            if response.stop_reason == "max_tokens":
-                self.log.add(AGENT_NAME, "warning", "Claude hit max_tokens; keeping results accepted so far.")
-                return False
-
-            messages.append({"role": "assistant", "content": response.content})
-            if response.stop_reason == "end_turn":
-                summary = " ".join(b.text for b in response.content if getattr(b, "type", "") == "text")
-                self.log.add(AGENT_NAME, "info", f"Claude finished: {summary[:300]}")
-                return True
-            if response.stop_reason == "pause_turn":
-                continue
-
-            results = []
-            for block in response.content:
-                if getattr(block, "type", "") != "tool_use":
-                    continue
-                self.log.add(AGENT_NAME, "tool_call", summarize(block.input), tool=block.name)
-                try:
-                    output = handlers[block.name](block.input)
-                    is_error = False
-                except (KeyError, ValueError, TypeError) as exc:
-                    output, is_error = {"error": f"{type(exc).__name__}: {exc}"}, True
-                self.log.add(AGENT_NAME, "tool_result", summarize(output), tool=block.name)
-                results.append({"type": "tool_result", "tool_use_id": block.id,
-                                "content": json.dumps(output, default=str), "is_error": is_error})
-            messages.append({"role": "user", "content": results})
-
-        self.log.add(AGENT_NAME, "warning", f"Stopped after {MAX_CLAUDE_TURNS} turns.")
-        return False
+        return run_tool_loop(
+            client=self.client,
+            model=self.model,
+            system=CLAUDE_SYSTEM_PROMPT,
+            tools=CLAUDE_TOOLS,
+            first_message=(
+                f"Review the {len(criteria)} eligibility criteria of {nct_id}. Call list_criteria, inspect any "
+                "criterion with get_criterion_details, and call submit_interpretation for every criterion that "
+                "has flags or no numeric threshold. Finish with a one-sentence summary."),
+            handlers=handlers,
+            log=self.log,
+            agent_name=AGENT_NAME,
+            max_turns=MAX_CLAUDE_TURNS,
+        )
 
 
 # ---------------------------------------------------------------------- #

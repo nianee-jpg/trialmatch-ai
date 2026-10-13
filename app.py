@@ -27,11 +27,21 @@ from trialmatch.clinicaltrials_client import (
     get_study,
 )
 from trialmatch.activity_log import ActivityLog
+from trialmatch.agents.eligibility_agent import EligibilityAgent
 from trialmatch.agents.patient_agent import PatientAgent, PatientDataError, load_patients
 from trialmatch.agents.protocol_agent import ProtocolAgent, make_claude_client
 from trialmatch.data_dictionary import DATA_FIELDS, field_group, field_label
 from trialmatch.text_utils import unescape_markdown
-from trialmatch.ui_text import EVENT_LABELS, TOOL_LABELS, flag_title, plain_log_detail
+from trialmatch.eligibility_models import CriterionEvaluation, ScreeningResult
+from trialmatch.ui_text import (
+    EVENT_LABELS,
+    METHOD_LABELS,
+    RESULT_LABELS,
+    RESULT_MEANINGS,
+    TOOL_LABELS,
+    flag_title,
+    plain_log_detail,
+)
 from trialmatch.protocol_models import Criterion, ProtocolExtraction
 from trialmatch.study_parser import StudyMetadata, parse_study
 
@@ -111,7 +121,7 @@ def render_sidebar(retrieval: Optional[StudyRetrieval]) -> None:
                         "to enable optional Claude interpretations.")
 
         st.subheader("Coming next")
-        st.caption("Eligibility Agent · Verification Agent · Screening report")
+        st.caption("Verification Agent · Screening report")
 
 
 def render_overview(study: StudyMetadata) -> None:
@@ -657,6 +667,178 @@ def render_patients(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
         )
 
 
+def run_screening(pid: str, patients: dict, extraction: ProtocolExtraction, study: StudyMetadata) -> ScreeningResult:
+    log = get_log()
+    agent = EligibilityAgent(log, PatientAgent(log, patients), client=make_claude_client())
+    result = agent.screen(pid, extraction, study)
+    st.session_state.setdefault("screenings", {})[pid] = result
+    return result
+
+
+def _evidence_table(evaluation: CriterionEvaluation) -> pd.DataFrame:
+    return pd.DataFrame([{
+        "Information": field_label(e.field),
+        "Result": _fmt_value(e.value),
+        "Unit": e.unit or "",
+        "Date": _fmt_date(e.date) if e.date else "",
+        "Until": _fmt_date(e.end_date) if e.end_date else "",
+        "Source": e.source or "",
+        "Reference": e.evidence_id,
+    } for e in evaluation.evidence])
+
+
+def render_evaluation_detail(e: CriterionEvaluation) -> None:
+    kind = "Inclusion" if e.type == "INCLUSION" else "Exclusion"
+    st.markdown(f"#### {e.criterion_id} · {kind}" + (f" (part of {e.parent_id})" if e.parent_id else ""))
+    st.text(e.criterion_text)
+    box = {"MET": st.success, "ABSENT": st.success, "NOT_MET": st.error, "PRESENT": st.error}.get(e.status, st.warning)
+    box(f"**{RESULT_LABELS[e.status]}**: {RESULT_MEANINGS[e.status]}\n\n{e.reason}")
+    st.caption(f"How it was decided: {METHOD_LABELS.get(e.method.value, e.method.value)}")
+
+    if e.comparisons:
+        st.markdown("**Checks performed**")
+        for line in e.comparisons:
+            st.markdown(f"- {line}")
+    st.markdown("**Evidence from the record**")
+    if e.evidence:
+        st.dataframe(_evidence_table(e), hide_index=True, width="stretch")
+    else:
+        st.caption("No record entries were used.")
+    if e.missing_information:
+        st.markdown("**Missing information**")
+        for f in e.missing_information:
+            st.markdown(f"- {field_label(f)}")
+    if e.assumptions:
+        st.markdown("**Assumptions the app made**")
+        for a in e.assumptions:
+            st.markdown(f"- {a}")
+    if e.ai_suggestion:
+        st.info(f"**Claude's advisory suggestion:** {e.ai_suggestion.suggested_status}. {e.ai_suggestion.rationale} "
+                f"(cites {', '.join(e.ai_suggestion.evidence_ids)}). The status stays NEEDS REVIEW.")
+
+
+def render_prescreening(retrieval: StudyRetrieval, study: StudyMetadata) -> None:
+    st.warning(
+        "**Pre-screening aid, not an eligibility decision.** The app checks each criterion against a "
+        "SYNTHETIC record and lists what needs follow-up. Only the study team can decide eligibility.",
+        icon="🩺",
+    )
+    try:
+        patients = load_patients()
+    except PatientDataError as exc:
+        st.error(f"A patient file was rejected and not loaded: {exc}")
+        return
+    extraction = ensure_extraction(retrieval, study)
+    if extraction is None:
+        st.info("Extract the criteria first in the **Extracted criteria** tab.")
+        return
+
+    c1, c2 = st.columns([3, 1])
+    pid = c1.selectbox("Patient to pre-screen", list(patients),
+                       format_func=lambda i: f"{patients[i].display_name.replace('Synthetic ', '')} · {i}",
+                       key="screen_patient")
+    c2.markdown("&nbsp;")
+    if c2.button("▶️ Run pre-screening", type="primary", width="stretch"):
+        with st.spinner("Checking every criterion…"):
+            run_screening(pid, patients, extraction, study)
+    st.caption(f"**What this case tests:** {patients[pid].scenario}")
+
+    result: Optional[ScreeningResult] = st.session_state.get("screenings", {}).get(pid)
+    if result is None:
+        st.info("Click **Run pre-screening** to check this patient against every criterion.")
+        return
+
+    # Summary -----------------------------------------------------------------
+    top = [e for e in result.evaluations if e.parent_id is None]
+    counts = {t: {} for t in ("INCLUSION", "EXCLUSION")}
+    for e in top:
+        counts[e.type][e.status] = counts[e.type].get(e.status, 0) + 1
+    st.markdown("### Summary")
+    left, right = st.columns(2)
+    with left:
+        st.markdown(f"**Inclusion criteria** ({sum(counts['INCLUSION'].values())})")
+        cols = st.columns(4)
+        for col, s in zip(cols, ["MET", "NOT_MET", "UNKNOWN", "NEEDS_HUMAN_REVIEW"]):
+            col.metric(RESULT_LABELS[s], counts["INCLUSION"].get(s, 0))
+    with right:
+        st.markdown(f"**Exclusion criteria** ({sum(counts['EXCLUSION'].values())})")
+        cols = st.columns(4)
+        for col, s in zip(cols, ["ABSENT", "PRESENT", "UNKNOWN", "NEEDS_HUMAN_REVIEW"]):
+            col.metric(RESULT_LABELS[s], counts["EXCLUSION"].get(s, 0))
+    st.caption("Counts are for main criteria; parts such as INC-03.a are listed in the table below.")
+    with st.expander("What do these results mean?"):
+        for s, meaning in RESULT_MEANINGS.items():
+            st.markdown(f"- **{RESULT_LABELS[s]}**: {meaning}")
+
+    # Follow-up -----------------------------------------------------------------
+    st.markdown("### What to follow up")
+    rule_out = [e for e in top if e.status in ("NOT_MET", "PRESENT")]
+    unknown = [e for e in top if e.status == "UNKNOWN"]
+    review = [e for e in top if e.status == "NEEDS_HUMAN_REVIEW"]
+    f1, f2, f3 = st.columns(3)
+    with f1:
+        st.markdown(f"**⛔ May rule the patient out ({len(rule_out)})**")
+        if rule_out:
+            for e in rule_out:
+                st.markdown(f"- **{e.criterion_id}**: {e.reason}")
+        else:
+            st.caption("Nothing in the record clearly rules this patient out. That is not the same as eligible.")
+    with f2:
+        st.markdown(f"**❔ Information to request ({len(unknown)})**")
+        missing = sorted({field_label(m) for e in unknown for m in e.missing_information})
+        if missing:
+            for m in missing:
+                st.markdown(f"- {m}")
+        else:
+            st.caption("Nothing missing.")
+    with f3:
+        st.markdown(f"**👤 Decisions for the study team ({len(review)})**")
+        for e in review:
+            why = e.review_reasons[0] if e.review_reasons else "Needs judgement"
+            st.markdown(f"- **{e.criterion_id}**: {why}")
+
+    # Table ---------------------------------------------------------------------
+    st.markdown("### Every criterion")
+    t1, t2, t3 = st.columns([2, 2, 3])
+    which = t1.radio("Show", ["All", "Inclusion", "Exclusion"], horizontal=True, key="screen_which")
+    hide_parts = t2.toggle("Hide parts of criteria", value=False)
+    statuses = t3.multiselect("Result", list(RESULT_LABELS), format_func=lambda s: RESULT_LABELS[s])
+    shown = [e for e in result.evaluations
+             if (which == "All" or e.type.title() == which)
+             and (not hide_parts or e.parent_id is None)
+             and (not statuses or e.status in statuses)]
+    table = pd.DataFrame([{
+        "ID": ("↳ " if e.parent_id else "") + e.criterion_id,
+        "Type": e.type.title(),
+        "Criterion": e.criterion_text,
+        "Result": RESULT_LABELS[e.status],
+        "How decided": METHOD_LABELS.get(e.method.value, e.method.value),
+        "Why": e.reason,
+    } for e in shown])
+    st.caption(f"Showing {len(shown)} of {len(result.evaluations)}.")
+    if not table.empty:
+        st.dataframe(table, hide_index=True, width="stretch")
+        chosen = st.selectbox("Open a result to see its evidence", [e.criterion_id for e in shown],
+                              format_func=lambda i: f"{i} · {RESULT_LABELS[result.by_id(i).status]} · "
+                                                    f"{result.by_id(i).criterion_text[:70]}")
+        render_evaluation_detail(result.by_id(chosen))
+
+    # Downloads -----------------------------------------------------------------
+    st.markdown("### Download")
+    csv = pd.DataFrame([{
+        "patient_id": result.patient_id, "record_label": "SYNTHETIC", "criterion_id": e.criterion_id,
+        "type": e.type, "status": e.status, "method": e.method.value, "reason": e.reason,
+        "evidence_ids": "; ".join(x.evidence_id for x in e.evidence),
+        "missing_information": "; ".join(e.missing_information), "assumptions": " | ".join(e.assumptions),
+    } for e in result.evaluations]).to_csv(index=False)
+    d1, d2 = st.columns(2)
+    d1.download_button("⬇️ Results table (.csv)", data=csv, file_name=f"{result.patient_id}_SYNTHETIC_prescreen.csv",
+                       mime="text/csv")
+    d2.download_button("⬇️ Full results with evidence (.json)", data=result.model_dump_json(indent=2),
+                       file_name=f"{result.patient_id}_SYNTHETIC_prescreen.json", mime="application/json")
+    st.caption(f"Screened {result.screened_at_utc} · {result.mode} · {result.disclaimer}")
+
+
 def render_activity_log() -> None:
     st.markdown("Every step the agents took, in order. Use it to see exactly how a result was reached.")
     log = get_log()
@@ -673,11 +855,12 @@ def render_activity_log() -> None:
         "Details": df["detail"].map(plain_log_detail),
     })
 
-    m1, m2, m3, m4 = st.columns(4)
+    m1, m2, m3, m4, m5 = st.columns(5)
     m1.metric("Steps recorded", len(df))
     m2.metric("Protocol Agent", int((df["agent"] == "Protocol Agent").sum()))
     m3.metric("Patient Agent", int((df["agent"] == "Patient Agent").sum()))
-    m4.metric("Warnings", int((df["event"] == "warning").sum()))
+    m4.metric("Eligibility Agent", int((df["agent"] == "Eligibility Agent").sum()))
+    m5.metric("Warnings", int((df["event"] == "warning").sum()))
 
     f1, f2 = st.columns(2)
     agents = sorted(readable["Agent"].unique())
@@ -719,9 +902,9 @@ def main() -> None:
         st.info("Check your internet connection and click **Fetch latest from ClinicalTrials.gov**.")
         return
 
-    tab_overview, tab_elig, tab_criteria, tab_patients, tab_log, tab_arms, tab_raw = st.tabs(
+    tab_overview, tab_elig, tab_criteria, tab_patients, tab_screen, tab_log, tab_arms, tab_raw = st.tabs(
         ["📋 Study overview", "📝 Eligibility criteria", "🧩 Extracted criteria", "🧑‍⚕️ Practice patients",
-         "🛰️ Activity log", "💊 Arms & outcomes", "🗂️ Raw API response"]
+         "🩺 Pre-screening", "🛰️ Activity log", "💊 Arms & outcomes", "🗂️ Raw API response"]
     )
     with tab_overview:
         render_overview(study)
@@ -731,6 +914,8 @@ def main() -> None:
         render_extracted_criteria(retrieval, study)
     with tab_patients:
         render_patients(retrieval, study)
+    with tab_screen:
+        render_prescreening(retrieval, study)
     with tab_log:
         render_activity_log()
     with tab_arms:

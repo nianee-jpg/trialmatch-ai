@@ -15,7 +15,7 @@ An AI-powered clinical trial pre-screening **simulation** that uses multi-agent 
 | 1 | ClinicalTrials.gov retrieval, raw-response traceability, metadata and eligibility display, basic Streamlit UI | ✅ Done |
 | 2 | Protocol Agent: structured Pydantic criteria, verification, activity log | ✅ Done |
 | 3 | 5 SYNTHETIC patient profiles + Patient Agent tools | ✅ Done |
-| 4 | Eligibility Agent (deterministic thresholds + Claude for ambiguous text) | ⏳ Planned |
+| 4 | Eligibility Agent (deterministic thresholds; ambiguous text to a person, optional Claude suggestions) | ✅ Done |
 | 5 | Verification Agent, activity logs, screening report | ⏳ Planned |
 
 ## Folder structure
@@ -35,10 +35,14 @@ trialmatch-ai/
 │   ├── activity_log.py             # visible log of agent tool calls and checks
 │   ├── ui_text.py                  # plain-language wording for codes shown in the dashboard
 │   ├── patient_models.py           # Pydantic models for SYNTHETIC records (+ identifier checks)
+│   ├── eligibility_models.py       # per-criterion results (MET/NOT_MET/..., PRESENT/ABSENT/...)
 │   └── agents/
 │       ├── protocol_tools.py       # deterministic tools: segment, thresholds, windows, flags, verify
 │       ├── protocol_agent.py       # Protocol Agent (offline by default, optional Claude tool calling)
-│       └── patient_agent.py        # Patient Agent: field-lookup tools over one synthetic record
+│       ├── patient_agent.py        # Patient Agent: field-lookup tools over one synthetic record
+│       ├── eligibility_logic.py    # comparisons, calendar windows, combining results (pure functions)
+│       ├── eligibility_agent.py    # Eligibility Agent + the CALIBRATE criterion rules
+│       └── claude_loop.py          # shared optional Claude tool-calling loop
 ├── data/
 │   ├── raw/                        # exact API responses + .meta.json sidecars (URL, time, SHA-256)
 │   └── patients/                   # SYN-001 … SYN-005: fictional records, labelled SYNTHETIC
@@ -48,7 +52,10 @@ trialmatch-ai/
     ├── test_study_parser.py
     ├── test_protocol_tools.py      # strict inequalities, missing data, date windows, prior treatment
     ├── test_protocol_agent.py      # end-to-end on the real CALIBRATE text, incl. a fake Claude client
-    └── test_patient_agent.py       # record safety checks, NOT_RECORDED, conflicts, scenario dates
+    ├── test_patient_agent.py       # record safety checks, NOT_RECORDED, conflicts, scenario dates
+    ├── test_eligibility_logic.py   # strict inequalities, calendar months, boundary days, combining
+    ├── test_eligibility_agent.py   # expected results for each synthetic patient
+    └── test_ui_text.py             # every code shown on screen has a plain translation
 ```
 
 ## How the Protocol Agent works (Milestone 2)
@@ -110,6 +117,37 @@ guessing, and report `CONFLICTING` when same-day values disagree. Every call app
 **Activity log** tab. The tools also have JSON schemas, so the Eligibility Agent (Milestone 4)
 can call them.
 
+## Pre-screening with the Eligibility Agent (Milestone 4)
+
+The Eligibility Agent checks every criterion separately for one synthetic patient, getting all
+data through the Patient Agent's logged tools.
+
+- Inclusion results: **MET**, **NOT_MET**, **UNKNOWN** (information missing), **NEEDS_HUMAN_REVIEW**
+- Exclusion results: **PRESENT**, **ABSENT**, **UNKNOWN**, **NEEDS_HUMAN_REVIEW**
+- There is **no overall eligibility decision**, only a follow-up list: what may rule the patient
+  out, what information to request, and what the study team must decide.
+
+How results are reached:
+
+| Situation | What the app does |
+|---|---|
+| Clear number with a unit (ANC, platelets, eGFR, IgG/IgA) | Compares exactly; "below 1,500" excludes 1,500 |
+| Limit relative to normal range (AST/ALT/ALP ≥ 2 × ULN) | Uses the lab's own upper limit recorded with the result |
+| Number or unit missing from the protocol (EXC-04, INC-04) | NEEDS_HUMAN_REVIEW; never fills in a value or assumes a unit |
+| Units in the record differ from the protocol | NEEDS_HUMAN_REVIEW; never converts |
+| Time limit with a stated start ("within 14 days before visit -1") | Exact calendar arithmetic |
+| Time limit without a stated start ("within the past 6 months") | Checked from screening **and** planned enrollment; if they disagree, NEEDS_HUMAN_REVIEW |
+| Date exactly on the first day of a window | NEEDS_HUMAN_REVIEW (the protocol does not say if it counts) |
+| Information missing from the record | UNKNOWN, naming what to request |
+| Sources disagree | NEEDS_HUMAN_REVIEW, showing every conflicting entry |
+| Investigator's opinion, "severe", "consistent with" … | NEEDS_HUMAN_REVIEW |
+
+The registry's structured age limit ("18 Years", no maximum) is checked as `REG-AGE`.
+
+**Optional Claude mode:** with an API key, Claude can add an *advisory* suggestion to criteria that
+need a person. It must look up evidence with the Patient Agent's tools and cite evidence IDs it
+actually retrieved. The status stays NEEDS_HUMAN_REVIEW.
+
 ## Install and run on macOS
 
 Works with **Python 3.9 or newer**, including the Python 3.9 that ships with macOS.
@@ -143,7 +181,7 @@ pip install -r requirements.txt
 cp .env.example .env
 ```
 
-**4. Run the tests.** You should see `85 passed`.
+**4. Run the tests.** You should see `134 passed`.
 
 ```bash
 python -m pytest
@@ -172,6 +210,8 @@ Next time, run `cd ~/trialmatch-ai`, then `source .venv/bin/activate`, then `str
   details, and download everything as JSON.
 - **Practice patients** tab, in four steps: choose a patient, check whether the record has
   everything the criteria ask about, look up any value (with its source), and view the full record.
+- **Pre-screening** tab: choose a patient, click **Run pre-screening**, and see a summary, a follow-up
+  list, every criterion's result with its evidence, and CSV/JSON downloads.
 - **Activity log** tab: every step each agent took, in plain language (the raw log is one click away).
 - **Raw API response** tab: the full JSON plus a download of the exact saved bytes.
 - Sidebar: **Fetch latest from ClinicalTrials.gov** and traceability details (URL, UTC timestamp,

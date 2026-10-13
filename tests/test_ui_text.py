@@ -1,5 +1,6 @@
 """Every internal code shown in the dashboard has a plain-language translation."""
 
+from trialmatch.agents.eligibility_agent import SUBMIT_SUGGESTION_TOOL
 from trialmatch.agents.patient_agent import PATIENT_TOOLS
 from trialmatch.agents.protocol_agent import CLAUDE_TOOLS
 from trialmatch.protocol_models import FlagCode
@@ -14,7 +15,8 @@ def test_every_flag_has_a_title():
 
 
 def test_every_tool_has_a_label():
-    names = set(PROTOCOL_TOOLS) | {t["name"] for t in PATIENT_TOOLS} | {t["name"] for t in CLAUDE_TOOLS}
+    names = (set(PROTOCOL_TOOLS) | {t["name"] for t in PATIENT_TOOLS} | {t["name"] for t in CLAUDE_TOOLS}
+             | {SUBMIT_SUGGESTION_TOOL["name"]})
     assert names <= set(TOOL_LABELS)
 
 

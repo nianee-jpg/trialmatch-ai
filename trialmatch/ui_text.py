@@ -128,3 +128,34 @@ _LOG_PHRASES = [
     (" < ", " below "), (" <= ", " at or below "), (" > ", " above "), (" >= ", " at or above "),
     ("MISSING", "[missing]"),
 ]
+
+
+# Pre-screening results ------------------------------------------------------
+
+RESULT_LABELS: Dict[str, str] = {
+    "MET": "✅ MET",
+    "NOT_MET": "❌ NOT MET",
+    "PRESENT": "⛔ PRESENT",
+    "ABSENT": "✅ ABSENT",
+    "UNKNOWN": "❔ UNKNOWN",
+    "NEEDS_HUMAN_REVIEW": "👤 NEEDS REVIEW",
+}
+
+RESULT_MEANINGS: Dict[str, str] = {
+    "MET": "The inclusion requirement is satisfied by the record.",
+    "NOT_MET": "The record shows the inclusion requirement is not satisfied.",
+    "PRESENT": "The record shows this exclusion applies.",
+    "ABSENT": "The record shows this exclusion does not apply.",
+    "UNKNOWN": "Information needed to check this is missing from the record.",
+    "NEEDS_HUMAN_REVIEW": "The app will not decide this: the wording needs judgement, sources disagree, "
+                          "or the protocol leaves something out.",
+}
+
+METHOD_LABELS: Dict[str, str] = {
+    "deterministic": "Calculated by the app",
+    "record lookup": "Read from the record",
+    "combined": "Combined from its parts",
+    "needs a person": "Left for a person",
+}
+
+TOOL_LABELS["submit_suggestion"] = "Suggest a reading (advisory only)"
